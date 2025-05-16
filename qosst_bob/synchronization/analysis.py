@@ -120,6 +120,10 @@ def run_analysis(args):
             electronic_shot_noise_data = electronic_shot_noise_data.data[0]
     
     alice_symbols = np.load(args.alice_symbols)
+    if args.indices is not None:
+        indices_from_file = np.load(args.indices)
+        alice_symbols = alice_symbols[np.argsort(indices_from_file)]
+        logger.info("Undo alice_symbols shuffling")
 
     # Offline DSP
     quantum_symbols, indices, electronic_symbols, electronic_shot_symbols = synchronization_analysis(
@@ -130,12 +134,12 @@ def run_analysis(args):
         alice_symbols,
     )
 
-    # Comparing indices
-    if args.indices is not None:
-        logger.info("Comparing indices")
-        indices_from_file = np.load(args.indices)
-        if not comapre_indices(logger, indices, indices_from_file):
-            logger.error("Indices are not the same.")
+    # # Comparing indices
+    # if args.indices is not None:
+    #     logger.info("Comparing indices")
+    #     indices_from_file = np.load(args.indices)
+    #     if not comapre_indices(logger, indices, indices_from_file):
+    #         logger.error("Indices are not the same.")
     
     alice_photon_number = np.load(args.alice_photon_number)[0]
     if args.alice_photon_number.endswith('.qosst'):
@@ -196,14 +200,16 @@ def batch_analysis_acquisitions(args):
         # Find the corresponding signal and photon number files, ignoring timestamp
         signal_files = glob.glob(os.path.join(data_folder, f"{acq_prefix}_signal-*"))
         photon_number_files = glob.glob(os.path.join(data_folder, f"{acq_prefix}_n-*"))
-        if not signal_files or not photon_number_files:
+        index_files = glob.glob(os.path.join(data_folder, f"{acq_prefix}_indices-*"))
+        if not signal_files or not photon_number_files or not index_files:
             logger.warning(f"Missing files for acquisition {acq_prefix}, skipping.")
             continue
         data_path = signal_files[0]
         alice_photon_number_path = photon_number_files[0]
+        index_path = index_files[0]
         print(data_path)
         # Skip if files are missing
-        if not (os.path.exists(data_path) and os.path.exists(alice_photon_number_path)):
+        if not (os.path.exists(data_path) and os.path.exists(alice_photon_number_path) and os.path.exists(index_path)):
             logger.warning(f"Missing files for acquisition {acq_prefix}, skipping.")
             continue
 
@@ -211,11 +217,13 @@ def batch_analysis_acquisitions(args):
         data_path = os.path.normpath(data_path)
         alice_symbols_path = os.path.normpath(alice_symbols_path)
         alice_photon_number_path = os.path.normpath(alice_photon_number_path)
+        index_path = os.path.normpath(index_path)
 
         args = argparse.Namespace(
             data=data_path,
             alice_symbols=alice_symbols_path,
             alice_photon_number=alice_photon_number_path,
+            indices=index_path,
             file=args.file,
             elec_data=args.elec_data,
             elec_shot_data=None,
