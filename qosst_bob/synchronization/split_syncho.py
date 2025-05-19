@@ -109,8 +109,8 @@ def split_syncho(folder : str, threshold: float = 0.01):
     os.makedirs(bad_dir, exist_ok=True)
 
     # Copy acquisitions
-    copy_files(good_indices, good_dir)
-    copy_files(bad_indices, bad_dir)
+    copy_files(good_indices, good_dir, acq_dict, acq_folder)
+    copy_files(bad_indices, bad_dir, acq_dict, acq_folder)
     if not os.path.exists(folder + 'split_data/acquisitions/'):
         os.makedirs(folder + 'split_data/acquisitions/')
 
