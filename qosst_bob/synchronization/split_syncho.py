@@ -13,7 +13,11 @@ def split_syncho(folder : str, threshold: float = 0.01):
     ----------
    
     """
-    results_excess_noise = os.path.join(folder, "results_excessnoise_2025-05-07_05-02-45.npy")
+    # Find the only .npy file in the folder
+    npy_files = [f for f in os.listdir(folder) if f.endswith('.npy')]
+    if len(npy_files) != 1:
+        raise FileNotFoundError("Expected exactly one .npy file in the folder.")
+    results_excess_noise = os.path.join(folder, npy_files[0])
     data = ExcessNoiseResults.load(results_excess_noise)
     num_rep = data.num_rep
     excess_noise_bob = data.excess_noise_bob
@@ -41,6 +45,7 @@ def split_syncho(folder : str, threshold: float = 0.01):
     shot_noise_bad = shot_noise[indices == 1]
 
     # Save the split data
+    print("Saving split data...")
     if not os.path.exists(folder + 'split_data/'):
         os.makedirs(folder + 'split_data/')
     np.savez(os.path.join(folder, 'split_data', 'good_data.npz'),
@@ -56,11 +61,22 @@ def split_syncho(folder : str, threshold: float = 0.01):
              electronic_noise=electronic_noise_bad,
              shot_noise=shot_noise_bad)
     
+    # Plot the split data
+    plt.figure()
+    plt.plot(transmittance_good, "o", color = 'red', label="Good Data")
+    plt.plot(transmittance_bad, "o", color='blue', label="Bad Data") 
+    plt.xlabel("Round")
+    plt.ylabel("Transmittance")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
     # Save the corresponding acquisitions
     good_indices = np.where(indices == 0)[0]
     bad_indices = np.where(indices == 1)[0]
+    print("Acquisitions failed : ", bad_indices)
 
-    acq_folder = os.path.join(folder, 'acq')
+    acq_folder = os.path.join(folder, 'export')
     acq_files = sorted(os.listdir(acq_folder))
 
     # Group files by acquisition number
@@ -76,6 +92,7 @@ def split_syncho(folder : str, threshold: float = 0.01):
                 continue
 
     # Copy files to split_data/acquisitions/good/ and bad/
+    print("Copying acquisitions...")
     good_dir = os.path.join(folder, 'split_data', 'acquisitions', 'good')
     bad_dir = os.path.join(folder, 'split_data', 'acquisitions', 'bad')
     os.makedirs(good_dir, exist_ok=True)
@@ -90,15 +107,7 @@ def split_syncho(folder : str, threshold: float = 0.01):
     if not os.path.exists(folder + 'split_data/acquisitions/'):
         os.makedirs(folder + 'split_data/acquisitions/')
 
-    # Plot the split data
-    plt.figure()
-    plt.plot(transmittance_good, "o", color = 'red', label="Good Data")
-    plt.plot(transmittance_bad, "o", color='blue', label="Bad Data") 
-    plt.xlabel("Round")
-    plt.ylabel("Transmittance")
-    plt.legend()
-    plt.grid()
-    plt.show()
+
 
 def main():
     folder = "./qosst_bob/synchronization/data/"
