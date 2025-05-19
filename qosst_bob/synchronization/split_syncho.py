@@ -101,18 +101,16 @@ def split_syncho(folder : str, threshold: float = 0.01):
             except ValueError:
                 continue
 
-    # Copy files to split_data/acquisitions/good/ and bad/
-    print("Copying acquisitions...")
-    good_dir = os.path.join(folder, 'split_data', 'acquisitions', 'good')
+    # Move 'bad' acquisition files to split_data/acquisitions/bad/
+    print("Moving bad acquisitions...")
     bad_dir = os.path.join(folder, 'split_data', 'acquisitions', 'bad')
-    os.makedirs(good_dir, exist_ok=True)
     os.makedirs(bad_dir, exist_ok=True)
 
-    # Copy acquisitions
-    copy_files(good_indices, good_dir, acq_dict, acq_folder)
-    copy_files(bad_indices, bad_dir, acq_dict, acq_folder)
-    if not os.path.exists(folder + 'split_data/acquisitions/'):
-        os.makedirs(folder + 'split_data/acquisitions/')
+    for idx in bad_indices:
+        for fname in acq_dict.get(idx, []):
+            src = os.path.join(acq_folder, fname)
+            dst = os.path.join(bad_dir, fname)
+            shutil.move(src, dst)
 
 
 
