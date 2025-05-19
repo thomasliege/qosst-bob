@@ -1,9 +1,19 @@
 from qosst_bob.data import ExcessNoiseResults
 import os
 import shutil
+import concurrent.futures
 from collections import defaultdict
 import matplotlib.pyplot as plt
 import numpy as np
+def copy_files(indices, target_dir, acq_dict, acq_folder):
+    tasks = []
+    for idx in indices:
+        for fname in acq_dict.get(idx, []):
+            src = os.path.join(acq_folder, fname)
+            dst = os.path.join(target_dir, fname)
+            tasks.append((src, dst))
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        executor.map(lambda args: shutil.copy(*args), tasks)
 
 def split_syncho(folder : str, threshold: float = 0.01):
     """
@@ -98,14 +108,12 @@ def split_syncho(folder : str, threshold: float = 0.01):
     os.makedirs(good_dir, exist_ok=True)
     os.makedirs(bad_dir, exist_ok=True)
 
-    for idx in good_indices:
-        for fname in acq_dict.get(idx, []):
-            shutil.copy(os.path.join(acq_folder, fname), os.path.join(good_dir, fname))
-    for idx in bad_indices:
-        for fname in acq_dict.get(idx, []):
-            shutil.copy(os.path.join(acq_folder, fname), os.path.join(bad_dir, fname))
+    # Copy acquisitions
+    copy_files(good_indices, good_dir)
+    copy_files(bad_indices, bad_dir)
     if not os.path.exists(folder + 'split_data/acquisitions/'):
         os.makedirs(folder + 'split_data/acquisitions/')
+
 
 
 
