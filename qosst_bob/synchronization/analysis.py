@@ -38,7 +38,7 @@ def synchronization_analysis(
         )
         data = data[end_electronic_shot_noise :]
 
-    quantum_symbols, params, dsp_debug = dsp_bob(data, config)
+    quantum_symbols, params, dsp_debug, initial_phase_list = dsp_bob(data, config)
 
     # Correct global phase of each frame of quantum symbols
     all_indices = []
@@ -48,6 +48,10 @@ def synchronization_analysis(
             "Finding global angle at frame %i/%i",
             i + 1,
             len(quantum_symbols),
+        )
+        logger.info(
+            "Intial phase : %s",
+            initial_phase_list[i],
         )
 
         # Generate indices
@@ -134,13 +138,6 @@ def run_analysis(args):
         alice_symbols,
     )
 
-    # # Comparing indices
-    # if args.indices is not None:
-    #     logger.info("Comparing indices")
-    #     indices_from_file = np.load(args.indices)
-    #     if not comapre_indices(logger, indices, indices_from_file):
-    #         logger.error("Indices are not the same.")
-    
     alice_photon_number = np.load(args.alice_photon_number)[0]
     if args.alice_photon_number.endswith('.qosst'):
         alice_photon_number = alice_photon_number.data[0]
@@ -155,6 +152,20 @@ def run_analysis(args):
             electronic_shot_symbols,
         )
     )
+
+    # Computing SNR
+    T = transmittance / configuration.bob.eta
+    Va = 2 * alice_photon_number
+    xi = excess_noise / transmittance
+    Vel = electronic_noise
+    eta = configuration.bob.eta
+    chi_line = (1 - T) / T + xi
+    chi_hom = (1 - eta + Vel) / eta
+    snr = Va / (1 + chi_line + chi_hom / T)
+    snr_real = eta * T * Va / (1 + Vel + eta * T * xi)
+    logger.info(f'SNR : {snr}')
+    logger.info(f'SNR bis : {snr_real}')
+
 
     skr = (
         configuration.frame.quantum.symbol_rate
@@ -248,8 +259,8 @@ def _create_parser() -> argparse.ArgumentParser:
     Returns:
         argparse.ArgumentParser: parser for the qosst-bob-synchronization-analysis.
     """
-    default_config_location = Path(os.getcwd()) / "./qosst_bob/synchronization/data/config.toml"
-    default_electronic_noise_location = "./qosst_bob/synchronization/data/electronic_noise.qosst"
+    default_config_location = Path(os.getcwd()) / "./qosst_bob/synchronization/data/acq_test/config.toml"
+    default_electronic_noise_location = "./qosst_bob/synchronization/data/acq_test/electronic_noise.qosst"
     parser = argparse.ArgumentParser(prog="qosst-bob-synchronization-analysis")
 
     subparsers = parser.add_subparsers(dest="mode", required=True, help="Mode: single or batch")

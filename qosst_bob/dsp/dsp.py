@@ -1577,7 +1577,10 @@ def _dsp_bob_direct_pilot_tracking(
         1j * 2 * np.pi * np.arange(fir_size) * f_pilot_real_1 / equi_adc_rate
     )).astype(np.complex64)
 
+    pilot_phase_list = [0]
+
     while num_symbols_recovered < num_symbols:
+        it = 0
         # Include more samples to account for the boundary condition of filters.
         begin_extended_subframe = max(
             begin_subframe - num_samples_previous_subframe, 0
@@ -1608,9 +1611,37 @@ def _dsp_bob_direct_pilot_tracking(
                 )
         clean_pilot = np.exp(-1j * pilot_angle).astype(np.complex64)
 
+        #PLot the first 1000 points of pilot_angle
+        # import matplotlib.pyplot as plt
+        # plt.figure()
+        # plt.plot(clean_pilot[:1000], label="clean_pilot")
+        # plt.legend()
+        # plt.xlabel("Sample")
+        # plt.ylabel("Angle (radians)")
+        # plt.grid()
+
+        pilot_phase_list.append(np.angle(clean_pilot[-1]))
+
         logger.info("Cancelling phase noise and shifting quantum data to baseband")
         subframe_data *= clean_pilot
         subframe_data *= shift_up[:len(subframe_data)]
+
+        subframe_data_bis = subframe_data * np.exp(
+            -1j
+            * pilot_phase_list[it]
+        ).astype(np.complex64)
+
+        it+=1       
+        # Plot the subframe data wit hand without the initial phase
+        # plt.figure()
+        # plt.plot(subframe_data_diff_2[:1000], label="subframe_data_diff_2")
+        # plt.plot(subframe_data_diff[:1000], label="subframe_data_diff")
+        # plt.plot(subframe_data[:1000], label="subframe_data")
+        # plt.legend()
+        # plt.xlabel("Sample")
+        # plt.ylabel("Amplitude")
+        # plt.grid()
+        # plt.show()
 
         logger.info("Applying RRC filter")
         subframe_data = oaconvolve(subframe_data, rrc_filter, "same")
@@ -1658,7 +1689,7 @@ def _dsp_bob_direct_pilot_tracking(
         frequency_shift=frequency_shift + f_beat,
         schema=schema,
     )
-    return result, special_params, dsp_debug
+    return result, special_params, dsp_debug, pilot_phase_list
 
 
 def find_global_angle(

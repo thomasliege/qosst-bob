@@ -164,6 +164,13 @@ def _create_parser() -> argparse.ArgumentParser:
         type=float,
         help="Mean number of photons per symbol at Alice side.",
     )
+    parser.add_argument(
+        "-n",
+        "--num_rep",
+        type=int,
+        default=1,
+        help="Number of repetitions of the DSP. Default : 1.",
+    )
     return parser
 
 

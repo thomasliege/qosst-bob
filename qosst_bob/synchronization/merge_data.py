@@ -6,7 +6,7 @@ import os
 import glob
 import numpy as np
 
-def merge(folder: str, total_num_symbols: int = int(1e7)):
+def merge(folder: str, N_merge: int = 10):
     """
     Merge the acquisitions and then analyse the stability of the performances.
     """
@@ -21,18 +21,22 @@ def merge(folder: str, total_num_symbols: int = int(1e7)):
         return
 
     # Merge by packets
-    num_packets = total_num_symbols // 
-    for i in range(0, num_acquisitions, 10):
+    for i in range(0, num_acquisitions, N_merge):
         alice_symbols_merged = []
         signal_merged = []
-        packet_files = alice_symbols_files[i:i+10]
-        packet_signals = signal_files[i:i+10]
+        n_merged = []
+        packet_files = alice_symbols_files[i:i+N_merge]
+        packet_signals = signal_files[i:i+N_merge]
+        packet_n = alice_photon_number_files[i:i+N_merge]
 
-        for alice_file, signal_file in zip(packet_files, packet_signals):
+        for alice_file, signal_file, n_file in zip(packet_files, packet_signals, packet_n):
             alice_symbols = np.load(alice_file)
             signal = np.load(signal_file)
+
+            n = np.load(n_file)
             alice_symbols_merged.append(alice_symbols)
             signal_merged.append(signal)
+            n_merged.append(n)
 
         # Concatenate arrays
         alice_symbols_merged = np.concatenate(alice_symbols_merged)
