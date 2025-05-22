@@ -59,10 +59,13 @@ class UKF(object):
 
         # Split sigma points
         xx_sigmas = xa_sigmas[:self.dim_x, :]
-        xv_sigmas = xa_sigmas[self.idx1:self.idx2, :]
+        xn_sigmas = xa_sigmas[self.idx1:self.idx2, :]
+        # xx_sigmas: (dim_x, n_sigma), xn_sigmas: (dim_n, n_sigma)
+        assert xx_sigmas.shape == (self.dim_x, self.n_sigma), f"xx_sigmas shape {xx_sigmas.shape} != ({self.dim_x},{self.n_sigma})"
+        assert xn_sigmas.shape == (self.dim_n, self.n_sigma), f"xn_sigmas shape {xn_sigmas.shape} != ({self.dim_n},{self.n_sigma})"
 
         # Transform sigma points through process function
-        y_sigmas = self._transform_sigma_points(f, xx_sigmas, xv_sigmas)
+        y_sigmas = self._transform_sigma_points(f, xx_sigmas, xn_sigmas)
 
         # Calculate mean and covariance
         y, Pyy = self.calculate_mean_and_covariance(y_sigmas)
@@ -133,6 +136,9 @@ class UKF(object):
         """Transform sigma points through a given function."""
         y_sigmas = np.zeros((self.dim_x, self.n_sigma))
         for i in range(self.n_sigma):
+            # Each xx_sigmas[:, i] is (dim_x,), noise_sigmas[:, i] is (dim_n,)
+            assert xx_sigmas[:, i].shape == (self.dim_x,), f"xx_sigmas[:, {i}].shape = {xx_sigmas[:, i].shape}"
+            assert noise_sigmas[:, i].shape == (self.dim_n,), f"noise_sigmas[:, {i}].shape = {noise_sigmas[:, i].shape}"
             y_sigmas[:, i] = func(xx_sigmas[:, i], noise_sigmas[:, i])
         return y_sigmas
 

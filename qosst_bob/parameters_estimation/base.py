@@ -115,7 +115,6 @@ class DefaultEstimator(BaseEstimator):
         conversion_factor = np.sqrt(
             alice_photon_number / np.mean(np.abs(alice_symbols) ** 2)
         )
-
         shot = np.var(electronic_shot_symbols) - np.var(electronic_symbols)
         vel = np.var(electronic_symbols) / shot
         bob_symbols = bob_symbols / np.sqrt(shot)

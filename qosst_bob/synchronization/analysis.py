@@ -17,8 +17,7 @@ from qosst_bob.dsp.dsp import dsp_bob, special_dsp, find_global_angle
 from qosst_core.infos import get_script_infos
 from qosst_core.logging import create_loggers
 from qosst_core.configuration.config import Configuration
-
-from qosst_bob.synchronization.utils import comapre_indices
+from qosst_bob.parameters_estimation.base import complex_to_real
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +141,14 @@ def run_analysis(args):
     if args.alice_photon_number.endswith('.qosst'):
         alice_photon_number = alice_photon_number.data[0]
 
+    # Return the quantum data normalized with shotnoise
+    electronic_symbols = complex_to_real(electronic_symbols)
+    electronic_shot_symbols = complex_to_real(electronic_shot_symbols)
+    bob_symbols = complex_to_real(quantum_symbols[indices])
+    shot = np.var(electronic_shot_symbols) - np.var(electronic_symbols)
+    shot_noise_normalized_vel = np.var(electronic_symbols) / shot
+    shot_noise_normalized_bob_symbols = bob_symbols / np.sqrt(shot)
+
     # Parameters estimation
     transmittance, excess_noise, electronic_noise = (
         configuration.bob.parameters_estimation.estimator.estimate(
@@ -165,6 +172,7 @@ def run_analysis(args):
     snr_real = eta * T * Va / (1 + Vel + eta * T * xi)
     logger.info(f'SNR : {snr}')
     logger.info(f'SNR bis : {snr_real}')
+    logger.info(f'SNR_dB : {-10 * np.log10(snr)}')
 
 
     skr = (
@@ -183,17 +191,14 @@ def run_analysis(args):
     logger.info("Excess noise (Bob): %f", excess_noise)
     logger.info("Electronic noise: %f", electronic_noise)
     logger.info("Secret key rate: %f MBit/s", skr * 1e-6)
-    return {
-        "transmittance": transmittance,
-        "excess_noise": excess_noise,
-        "electronic_noise": electronic_noise,
-        "skr": skr,
-    }
+
+    return shot_noise_normalized_bob_symbols, shot_noise_normalized_vel, indices
 
 
 def batch_analysis_acquisitions(args):
     """
     Run analysis for all acquisitions in the given folder.
+    Returns the normalized (with shotnoise) quantum data after DSP in a separate folder.
     """
     logger.info("Beginning batch analysis")
     data_folder = args.data_folder
@@ -201,7 +206,9 @@ def batch_analysis_acquisitions(args):
     # Find all Alice symbols files
     logger.info(f"Searching for acquisitions in {data_folder}")
     alice_symbols_files = sorted(glob.glob(os.path.join(data_folder, "acq*_alice_symbols-*")))
-    results = []
+    bob_symbols_list = []
+    vel_list = []
+    indices_list = []
     
     for alice_symbols_path in alice_symbols_files:
         # Extract acquisition prefix and timestamp
@@ -246,9 +253,11 @@ def batch_analysis_acquisitions(args):
         logger.info("=" * 60)
         logger.info(f"Processing acquisition {acq_prefix}")
         logger.info("=" * 60)
-        result = run_analysis(args)
-        results.append(result)
-    return results
+        bob_symbols, vel, indices = run_analysis(args)
+        bob_symbols_list.append([bob_symbols])
+        vel_list.append([vel])
+        indices_list.append([indices])
+    return bob_symbols_list, vel_list, indices_list
 
 
 
@@ -314,7 +323,11 @@ def main():
     if args.mode == "single":
         run_analysis(args)
     elif args.mode == "batch":
-        batch_analysis_acquisitions(args)
+        bob_symbols_list, vel_list, indices_list = batch_analysis_acquisitions(args)
+        np.save(args.data_folder + 'bob_symbols', bob_symbols_list)
+        np.save(args.data_folder + 'vel', vel_list)
+        np.save(args.data_folder + 'indices', indices_list)
+
 
 if __name__ == "__main__":
     main()

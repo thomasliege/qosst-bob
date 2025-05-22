@@ -114,7 +114,7 @@ def main():
 
     data = np.load('./qosst_bob/phase_recovery/test/result_basic.npz')
     result = data['result']
-    all_alice_symbols = np.load('./data_test_UKF/symbols_alice.npy' , allow_pickle=True)
+    all_alice_symbols = np.load('C:/Users/tliege/LIP6/atmospheric-channel/data_test_UKF/symbols_alice.npy' , allow_pickle=True)
     for k in range(10):
         find_globa_angle(result, all_alice_symbols)
     

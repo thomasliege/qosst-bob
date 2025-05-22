@@ -7,10 +7,17 @@ from numba import njit
 import seaborn as sns
 import pandas as pd
 
+F_PILOTS_OFFSET = 2
+
 
 def create_ukf(nx, nz, Q, N):
-        ukf = UKF(dim_x=nx, dim_z=nz, Q=Q, R=N, kappa=(3 - nx))
-        return ukf
+    # Q: process noise covariance (should be (nx, nx))
+    # N: measurement noise covariance (should be (nz, nz))
+    assert np.array(Q).shape == (nx, nx), f"Q shape {np.array(Q).shape} != ({nx},{nx})"
+    assert np.array(N).shape == (nz, nz), f"N shape {np.array(N).shape} != ({nz},{nz})"
+
+    ukf = UKF(dim_x=nx, dim_z=nz, Q=Q, R=N, kappa=(3 - nx))
+    return ukf
 
 def run_ukf(ukf: UKF, measurement, theta_0, P_0, f, h):
     estimates = np.zeros(len(measurement))
@@ -28,6 +35,8 @@ def run_ukf(ukf: UKF, measurement, theta_0, P_0, f, h):
         z_real = np.array([z.real, z.imag])
         x, P, _ = ukf.predict(f, x, P)
         x, P, _ = ukf.correct(h, x, P, z_real)
+        # x should be a 1D array of length nx
+        assert x.shape[0] == ukf.dim_x, f"x shape {x.shape} != ({ukf.dim_x},)"
         estimates[iteration] = x[0]
 
     sys.stdout.write('\n')  # Move to the next line after the progress bar
@@ -39,11 +48,12 @@ def f(x, q):
 
 @njit
 def h(x, n, A=1.0):
+    assert n.shape == (2,), f"n shape {n.shape} != (2,)"
     # Ensure that x and n are 1D arrays
     z = np.empty(2, dtype=np.float64)  # Initialize output array with known size
     
-    z[0] = A * np.cos(x) + n[0]  # Element-wise operation
-    z[1] = A * np.sin(x) + n[1]  # Element-wise operation
+    z[0] = A * np.cos(x[0]) + n[0]  # Element-wise operation
+    z[1] = A * np.sin(x[0]) + n[1]  # Element-wise operation
     
     return z
 
