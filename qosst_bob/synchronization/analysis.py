@@ -324,9 +324,11 @@ def main():
         run_analysis(args)
     elif args.mode == "batch":
         bob_symbols_list, vel_list, indices_list = batch_analysis_acquisitions(args)
-        np.save(args.data_folder + 'bob_symbols', bob_symbols_list)
-        np.save(args.data_folder + 'vel', vel_list)
-        np.save(args.data_folder + 'indices', indices_list)
+        if not os.path.exists(args.data_folder + 'data_merged/'):
+            os.mkdir(os.path.join(args.data_folder + 'data_merged/'))
+        np.save(args.data_folder + 'data_merged/bob_symbols', bob_symbols_list)
+        np.save(args.data_folder + 'data_merged/vel', vel_list)
+        np.save(args.data_folder + 'data_merged/indices', indices_list)
 
 
 if __name__ == "__main__":
