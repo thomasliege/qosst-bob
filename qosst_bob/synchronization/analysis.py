@@ -141,14 +141,6 @@ def run_analysis(args):
     if args.alice_photon_number.endswith('.qosst'):
         alice_photon_number = alice_photon_number.data[0]
 
-    # Return the quantum data normalized with shotnoise
-    electronic_symbols = complex_to_real(electronic_symbols)
-    electronic_shot_symbols = complex_to_real(electronic_shot_symbols)
-    bob_symbols = complex_to_real(quantum_symbols[indices])
-    shot = np.var(electronic_shot_symbols) - np.var(electronic_symbols)
-    shot_noise_normalized_vel = np.var(electronic_symbols) / shot
-    shot_noise_normalized_bob_symbols = bob_symbols / np.sqrt(shot)
-
     # Parameters estimation
     transmittance, excess_noise, electronic_noise = (
         configuration.bob.parameters_estimation.estimator.estimate(
@@ -159,6 +151,14 @@ def run_analysis(args):
             electronic_shot_symbols,
         )
     )
+
+    # Return the quantum data normalized with shotnoise
+    elec_symbols = complex_to_real(electronic_symbols)
+    elec_shot_symbols = complex_to_real(electronic_shot_symbols)
+    bob_symbols = complex_to_real(quantum_symbols[indices])
+    shot = np.var(elec_shot_symbols) - np.var(elec_symbols)
+    shot_noise_normalized_vel = np.var(elec_symbols) / shot
+    shot_noise_normalized_bob_symbols = bob_symbols / np.sqrt(shot)
 
     # Computing SNR
     T = transmittance / configuration.bob.eta
