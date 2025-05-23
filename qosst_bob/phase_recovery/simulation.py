@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.signal import butter, filtfilt
-from qosst_bob.phase_recovery.utils import phase_noise_correction_ukf
+from qosst_bob.phase_recovery.utils import phase_noise_correction_ukf, evaluate_estimation
 from qosst_bob.phase_recovery.laser_simulation import laser_simulated
 
 # Parameters
@@ -10,14 +9,24 @@ DT = 1e-7                 # time step
 T = 1e-3                  # total simulation time
 MU = 1.2                  # desired mean phase (rad)
 THETA = 1e5               # reversion rate (adjust to get desired behavior)
+SNR = 40 # dB
 
 def ukf_simulation(t, phi):
     # Simulate noisy measurements (complex signal)
     measurements = np.cos(phi) + 1j * np.sin(phi)
 
     # Use UKF to estimate the phase
-    estimated_phase = phase_noise_correction_ukf(measurements, elec_noise=0.1, shot_noise=0.25)
+    # Initial covariance
+    P = np.array([[100]])
+    # Process noise
+    Q = np.array([[2 * np.pi * LINEWIDTH * DT]])
+    # Measurement noise
+    shotnoise = 1 / 10**(SNR / 10)
+    R = np.array([[shotnoise, 0], [0, shotnoise]])
+    estimated_phase = phase_noise_correction_ukf(measurements, P, Q, R)
     estimated_phase_unwrapped = np.unwrap(estimated_phase)
+
+    mae, mse, whitin_range, max_error = evaluate_estimation(phi, estimated_phase_unwrapped, Q, R, DT)
 
     # Plot
     plt.figure(figsize=(10, 4))

@@ -1,31 +1,25 @@
-# Updated utils.py with improvements
 import numpy as np
 from ukf import UKF
 import sys
 import matplotlib.pyplot as plt
-from scipy.ndimage import uniform_filter1d
 from numba import njit
 import seaborn as sns
 import pandas as pd
+from tqdm import tqdm
 
-F_PILOTS_OFFSET = 2
-
-def create_ukf(nx, nz, Q, N):
-    assert np.array(Q).shape == (nx, nx), f"Q shape {np.array(Q).shape} != ({nx},{nx})"
-    assert np.array(N).shape == (nz, nz), f"N shape {np.array(N).shape} != ({nz},{nz})"
-    return UKF(dim_x=nx, dim_z=nz, Q=Q, R=N, kappa=(3 - nx))
+def create_ukf(Q, R):
+    nx = Q.shape[0]
+    nz = R.shape[0]
+    assert Q.shape == (nx, nx), f"Q shape {Q.shape} != ({nx},{nx})"
+    assert R.shape == (nz, nz), f"R shape {R.shape} != ({nz},{nz})"
+    return UKF(dim_x=nx, dim_z=nz, Q=Q, R=R, kappa=(3 - nx))
 
 def run_ukf(ukf: UKF, measurement, theta_0, P_0, f, h, verbose=False):
     estimates = np.zeros(len(measurement))
     x, P = theta_0, P_0
 
-    for iteration, z in enumerate(measurement):
-        if verbose and (iteration % 10 == 0 or iteration == len(measurement) - 1):
-            percent = int((iteration + 1) / len(measurement) * 100)
-            bar = '=' * (percent // 2) + '-' * (50 - percent // 2)
-            sys.stdout.write(f'\r|{bar}| {percent}%')
-            sys.stdout.flush()
-
+    iterator = tqdm(enumerate(measurement), total=len(measurement), disable=not verbose, desc="Running UKF")
+    for iteration, z in iterator:
         z_real = np.array([z.real, z.imag])
         x, P, _ = ukf.predict(f, x, P)
         x, P, _ = ukf.correct(h, x, P, z_real)
@@ -33,8 +27,6 @@ def run_ukf(ukf: UKF, measurement, theta_0, P_0, f, h, verbose=False):
         assert x.shape[0] == ukf.dim_x, f"x shape {x.shape} != ({ukf.dim_x},)"
         estimates[iteration] = x[0]
 
-    if verbose:
-        sys.stdout.write('\n')
     return estimates
 
 @njit
@@ -49,14 +41,12 @@ def h(x, n, A=1.0):
     z[1] = A * np.sin(x[0]) + n[1]
     return z
 
-def phase_noise_correction_ukf(measurement: np.ndarray, elec_noise=3.2, shot_noise=1.5) -> np.ndarray:
-    theta_0 = np.array([0.0])
-    P_0 = np.array([[3.0]])
-    Q = np.array([[elec_noise]])
-    N = np.array([[shot_noise, 0], [0, shot_noise]])
-    ukf = create_ukf(1, 2, Q, N)
+def phase_noise_correction_ukf(measurement: np.ndarray, P, Q, R, theta_0=None) -> np.ndarray:
+    if theta_0 is None:
+        theta_0 = np.zeros((Q.shape[0],))
+    ukf = create_ukf(Q, R)
     print("UKF created")
-    expected_angle = run_ukf(ukf, measurement, theta_0, P_0, f, h, verbose=True)
+    expected_angle = run_ukf(ukf, measurement, theta_0, P, f, h, verbose=True)
     return expected_angle
 
 def simulate_data(T, Q_true_val, R_true_val):
@@ -79,7 +69,10 @@ def optimize_ukf_parameters(true_phases, measurements, Q_values, R_values):
 
     for Q_val in Q_values:
         for R_val in R_values:
-            estimated = phase_noise_correction_ukf(measurements, elec_noise=Q_val, shot_noise=R_val)
+            Q = np.array([[Q_val]])
+            R = np.array([[R_val, 0], [0, R_val]])
+            P = np.array([[0.1]])
+            estimated = phase_noise_correction_ukf(measurements, P, Q, R)
             error = compute_error(estimated, true_phases)
             all_results.append({"Q": Q_val, "R": R_val, "Error": error})
             if error < best_error:
@@ -88,6 +81,27 @@ def optimize_ukf_parameters(true_phases, measurements, Q_values, R_values):
             print(f"Q={Q_val:.3f}, R={R_val:.3f} --> Error={error:.5f}")
 
     return best_params, all_results
+
+def evaluate_estimation(true_phase, estimated_phase, Q, R, dt):
+    error = np.unwrap(estimated_phase) - np.unwrap(true_phase)
+    
+    mae = np.mean(np.abs(error))
+    mse = np.mean(error**2)
+    
+    # Theoretical standard deviation of phase due to Q
+    phase_std = np.sqrt(Q[0, 0] / dt)  # Approximate
+    
+    # 95% confidence band
+    in_bounds = np.abs(error) < 2 * phase_std
+    within_band = np.mean(in_bounds)
+
+    print(f"Mean Absolute Error: {mae}")
+    print(f"Mean Square Error: {mse}")
+    print(f"Within_95%_confidence: {within_band}")
+    print(f"Max Error: {np.max(np.abs(error))}")
+    
+    return mae, mse, within_band, np.max(np.abs(error))
+
 
 def scan_heatmap(true_phases, measurements):
     Q_scan = np.linspace(0.01, 1.0, 10)
@@ -121,7 +135,11 @@ def main():
     true_phases, measurements = simulate_data(T, Q_true_val, R_true_val)
     scan_heatmap(true_phases, measurements)
 
-    expected_angle = phase_noise_correction_ukf(measurements, elec_noise=0.45, shot_noise=1)
+    P = np.array([[0.1]])
+    Q = np.array([[0.45]])
+    R = np.array([[1e-4, 0], [0, 1e-4]])
+
+    expected_angle = phase_noise_correction_ukf(measurements, P, Q, R)
     expected_angle_unwrapped = np.unwrap(expected_angle)
 
     diff_ukf = np.abs(expected_angle_unwrapped - np.unwrap(true_phases))
