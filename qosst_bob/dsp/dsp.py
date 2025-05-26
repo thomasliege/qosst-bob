@@ -1689,7 +1689,7 @@ def _dsp_bob_direct_pilot_tracking(
         frequency_shift=frequency_shift + f_beat,
         schema=schema,
     )
-    return result, special_params, dsp_debug, pilot_phase_list
+    return result, special_params, dsp_debug #, pilot_phase_list
 
 
 def find_global_angle(
