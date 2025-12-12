@@ -97,7 +97,7 @@ def synchronize(
     beginning_synchro = lags[np.argmax(xcorr)] + xcorr_start_point
     end_synchro = len(synchro) + beginning_synchro
 
-    if False:
+    if True:
         # Debugging code
         from matplotlib import pyplot as plt
         center = beginning_synchro - xcorr_start_point
