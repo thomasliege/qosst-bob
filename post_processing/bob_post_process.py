@@ -90,19 +90,21 @@ def bob_heterodyne_post_selection(bob_symbols, Vbob, cutoff):
     actual_var_p = np.var(p_vals)
     print(f"[Bob Post-selection] Provided Vbob: x={Vbob[0]:.4f}, p={Vbob[1]:.4f}")
     print(f"[Bob Post-selection] Actual variance: x={actual_var_x:.4f}, p={actual_var_p:.4f}")
-    print(f"[Bob Post-selection] Cutoff: x={cutoff[0]:.4f}, p={cutoff[1]:.4f}")
+    print(f"[Bob Post-selection] Cutoff={cutoff:.4f}")
 
-    mask = -cutoff**2 < x_vals**2 + p_vals**2 < cutoff**2
+    mask = (x_vals**2 + p_vals**2) >= cutoff**2
 
     bob_symbols_kept = bob_symbols[mask]
 
     # Empirical acceptance probabilities
     P_B_empirical = np.mean(mask)
 
-    # Theoretical acceptance probabilities, we consider Vbob_x = Vbob_p = Vbob for simplicity
-    assert Vbob[0] == Vbob[1], "Vbob_x and Vbob_p should be equal for theoretical acceptance probability."
-    Vb = Vbob[0]
-    P_B_theoretical = np.exp(-cutoff**2 / (2 * Vb)) 
+    # Theoretical acceptance probabilities
+    p_b = 1 / (np.pi * np.sqrt((Vbob[0] + 1)*(Vbob[1] + 1))) * np.exp(- (x_vals**2)/(Vbob[0] + 1) - (p_vals**2)/(Vbob[1] + 1))
+    # TODO: Vbob_x != V_bob_p, maybe need to compute the actual acceptance proba
+    ######################### Mistake in the paper, P_B = 1 - erf(-cutoff/sqrt(2 Vb)) #########################
+    # P_B_theoretical = erfc(-cutoff**2 / (2 * Vbob[0]))  # Approximation assuming Vbob_x = Vbob_p
+    P_B_theoretical = np.exp(-cutoff**2 / (2 * Vbob[0])) 
 
     return {
         "bob_symbols": bob_symbols_kept,

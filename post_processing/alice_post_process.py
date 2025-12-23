@@ -1,6 +1,6 @@
 import numpy as np
 
-def alice_post_selection(alice_symbols: np.ndarray, gain: np.ndarray, Va: float):
+def alice_post_selection(alice_symbols: np.ndarray, gain: np.ndarray, Va: np.ndarray):
     # Compute the filter for each quadrature
     filter_x = np.exp(-1 * gain[0]**2 * alice_symbols.real**2)
     filter_p = np.exp(-1 * gain[1]**2 * alice_symbols.imag**2)
@@ -17,12 +17,12 @@ def alice_post_selection(alice_symbols: np.ndarray, gain: np.ndarray, Va: float)
 
     # Compute the acceptance probability
     P_A_empirical = np.mean((uniform_x < filter_x) & (uniform_p < filter_p)) # Empirical
-    P_A_theoretical_x = 1 / np.sqrt(1 + 2 * gain[0]**2 * Va)  # Theoretical
-    P_A_theoretical_p = 1 / np.sqrt(1 + 2 * gain[1]**2 * Va)
+    P_A_theoretical_x = 1 / np.sqrt(1 + 2 * gain[0]**2 * Va[0])  # Theoretical
+    P_A_theoretical_p = 1 / np.sqrt(1 + 2 * gain[1]**2 * Va[1])
 
     # Get the new effective variance modulation
-    Vmod_new_x = Va / (1 + 2 * gain[0]**2 * Va)
-    Vmod_new_p = Va / (1 + 2 * gain[1]**2 * Va)
+    Vmod_new_x = Va[0] / (1 + 2 * gain[0]**2 * Va[0])
+    Vmod_new_p = Va[1] / (1 + 2 * gain[1]**2 * Va[1])
     Vmod_new = np.array([Vmod_new_x, Vmod_new_p])
 
     post_selection_alice = {

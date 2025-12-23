@@ -1,20 +1,28 @@
 import numpy as np
 from utils import homodyne_gaussian_to_densitymatrix, von_neumann_entropy
 from math import erfc
-import time
+from qosst_skr.utils import g
+import tqdm
 
 ####### Mutual Information #######
 
-def I_AB_gaussian_homodyne(V_A, V_bob, C):
+def I_AB_homodyne_ppA(V_A, V_bob, C, gain):
     """
     Computes I_AB^x = 0.5 * log2( VAx / VAx|Bx ), where VAx = (Vx + 1)/2,
     and VAx|Bx = VAx - Cx^2/(2 Vbx). All variances in SNU.
     """
-    VAx = (V_A + 1.0) / 2.0
-    VAx_cond = VAx - (C**2) / (2.0 * V_bob)
-    return 0.5 * np.log2(VAx / VAx_cond)
+    VAx = (V_A[0] + 1.0) / 2.0
+    VAp = (V_A[1] + 1.0) / 2.0
+    VBx = (V_bob[0] + 1.0) / 2.0
+    VBp = (V_bob[1] + 1.0) / 2.0
+    VAx_cond = VAx - (C[0]**2) / (4.0 * VBx)
+    VAp_cond = VAp - (C[1]**2) / (4.0 * VBp)
+    P_A_x = 1 / np.sqrt(1 + 2 * gain[0]**2 * V_A[0])
+    P_A_p = 1 / np.sqrt(1 + 2 * gain[1]**2 * V_A[1])
+    I_AB = 0.5 * P_A_x * 0.5 * np.log2(VAx / VAx_cond) + 0.5 * P_A_p * 0.5 * np.log2(VAp / VAp_cond)
+    return I_AB
 
-def I_AB_discrete_homodyne(Va, Vb, C, cutoff, delta, x_range, p_range):
+def I_AB_homodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na, nb):
     """
     Computes I_AB after Bob's post-selection exactly as in the paper (Eqs. 28–34).
 
@@ -78,8 +86,8 @@ def I_AB_discrete_homodyne(Va, Vb, C, cutoff, delta, x_range, p_range):
     PB_x = max(PB_x, eps)
     PB_p = max(PB_p, eps)
     print(f"Post-selection acceptance probabilities: PB_x = {PB_x}, PB_p = {PB_p}")
-    mask_x = (np.abs(xb) > cutoff[0])                # Bob only keeps |xb| > cutoff
-    mask_p = (np.abs(pb) > cutoff[1])                # Bob only keeps |pb| > cutoff
+    mask_x = (np.abs(xb) > cutoff[0]) & (np.abs(xa) <= na)                # Bob only keeps |xb| > cutoff
+    mask_p = (np.abs(pb) > cutoff[1]) & (np.abs(pa) <= nb)                # Bob only keeps |pb| > cutoff
     fAB_post_x = fAB_x * mask_x / PB_x                  # post-selected joint distribution (Eq. 31)
     fAB_post_p = fAB_p * mask_p / PB_p
 
@@ -175,7 +183,7 @@ def mu_E_cond_homodyne(xb, pb, channel_params):
     mu = sigma_c @ (invV @ vec)
     return mu
 
-def holevo_bound_homodyne(
+def holevo_bound_homodyne_ppB(
     sigma_E_cond_cov,
     sigma_c,
     V_bob,
@@ -188,23 +196,19 @@ def holevo_bound_homodyne(
     """
     Compute Holevo bound after Bob's post-selection on x quadrature using the density-matrix averaging method.
     """
-    print(f"[Holevo] Starting with ncut={ncut}, delta={delta}")
-    t_start = time.time()
-
     # 1) Build post-selected probability distribution tilde{p}_b(x)
     PB_x = erfc(cutoff[0] / np.sqrt(2.0 * V_bob[0]))
     PB_p = erfc(cutoff[1] / np.sqrt(2.0 * V_bob[1]))
     eps = 1e-300
     PB_x = max(PB_x, eps)
     PB_p = max(PB_p, eps)
-    print(f"[Holevo] Post-selection probabilities: PB_x={PB_x:.3e}, PB_p={PB_p:.3e}")
 
     def pb_tilde_x(x):
-        if abs(x) <= cutoff[0]:
+        if abs(x) < cutoff[0]:
             return 0.0
         return np.exp(-x**2 / (2.0 * V_bob[0])) / (np.sqrt(2.0 * np.pi * V_bob[0]) * PB_x)
     def pb_tilde_p(p):
-        if abs(p) <= cutoff[1]:
+        if abs(p) < cutoff[1]:
             return 0.0
         return np.exp(-p**2 / (2.0 * V_bob[1])) / (np.sqrt(2.0 * np.pi * V_bob[1]) * PB_p)
 
@@ -213,8 +217,6 @@ def holevo_bound_homodyne(
     pb_tilde_x_list = np.array([pb_tilde_x(x) for x in x_bins])
     p_bins = np.arange(p_range[0] + delta/2.0, p_range[1], delta)
     pb_tilde_p_list = np.array([pb_tilde_p(p) for p in p_bins])
-    print(f"[Holevo] Grid sizes: x={len(x_bins)}, p={len(p_bins)} (total {len(x_bins) + len(p_bins)} points)")
-    print(f"[Holevo] x_range={x_range}, p_range={p_range}")
 
     # normalize (numerical)
     if pb_tilde_x_list.sum() <= 0 or pb_tilde_p_list.sum() <= 0:
@@ -222,39 +224,34 @@ def holevo_bound_homodyne(
     pb_tilde_x_list = pb_tilde_x_list / np.sum(pb_tilde_x_list)
     pb_tilde_p_list = pb_tilde_p_list / np.sum(pb_tilde_p_list)
     
-    # Count non-negligible points
-    n_significant_x = np.sum(pb_tilde_x_list > 1e-8)
-    n_significant_p = np.sum(pb_tilde_p_list > 1e-8)
-    print(f"[Holevo] Significant points: x={n_significant_x}/{len(x_bins)}, p={n_significant_p}/{len(p_bins)}")
-
     # prepare channel_params for mu function
     channel_params = {'sigma_c': sigma_c, 'Vb_x': V_bob[0], 'Vb_p': V_bob[1]}
 
     # 2) Build conditional density matrices rho_{E|x}
-    t_x_start = time.time()
     rhos_x = []
-    for i, (x, pb_x) in enumerate(zip(x_bins, pb_tilde_x_list)):
-        if pb_x < 1e-8:
-            rhos_x.append(None)
-            continue
-        mu_x = mu_E_cond_homodyne(x, 0.0, channel_params)
-        rho_x = homodyne_gaussian_to_densitymatrix(sigma_E_cond_cov[0], mu_x, ncut=ncut)
-        rhos_x.append(rho_x)
-    t_x_elapsed = time.time() - t_x_start
-    print(f"[Holevo] x-quadrature done in {t_x_elapsed:.2f}s ({t_x_elapsed/n_significant_x:.3f}s per point)")
-
-    t_p_start = time.time()
     rhos_p = []
-    for i, (p, pb_p) in enumerate(zip(p_bins, pb_tilde_p_list)):
-        if pb_p < 1e-8:
-            rhos_p.append(None)
-            continue
-        mu_p = mu_E_cond_homodyne(0.0, p, channel_params)
-        rho_p = homodyne_gaussian_to_densitymatrix(sigma_E_cond_cov[1], mu_p, ncut=ncut)
-        rhos_p.append(rho_p)
-    t_p_elapsed = time.time() - t_p_start
-    print(f"[Holevo] p-quadrature done in {t_p_elapsed:.2f}s ({t_p_elapsed/n_significant_p:.3f}s per point)")
+    total_points = len(x_bins) * len(p_bins)
+    with tqdm(total=total_points, desc="[Holevo] Computing density matrices") as pbar:
+        for i, (x, pb_x) in enumerate(zip(x_bins, pb_tilde_x_list)):
+            if pb_x < 1e-8:
+                rhos_x.append(None)
+                pbar.update(1)
+                continue
+            mu_x = mu_E_cond_homodyne(x, 0.0, channel_params)
+            rho_x = homodyne_gaussian_to_densitymatrix(sigma_E_cond_cov[0], mu_x, ncut=ncut)
+            rhos_x.append(rho_x)
+            pbar.update(1)
 
+        for i, (p, pb_p) in enumerate(zip(p_bins, pb_tilde_p_list)):
+            if pb_p < 1e-8:
+                rhos_p.append(None)
+                pbar.update(1)
+                continue
+            mu_p = mu_E_cond_homodyne(0.0, p, channel_params)
+            rho_p = homodyne_gaussian_to_densitymatrix(sigma_E_cond_cov[1], mu_p, ncut=ncut)
+            rhos_p.append(rho_p)
+            pbar.update(1)
+   
     # 3) Average state
     rho_avg_x = None
     rho_avg_p = None
@@ -276,7 +273,6 @@ def holevo_bound_homodyne(
     # 4) Entropies
     S_avg_x = von_neumann_entropy(rho_avg_x)
     S_avg_p = von_neumann_entropy(rho_avg_p)
-    print(f"[Holevo] S(rho_E): x={S_avg_x:.4f} bits, p={S_avg_p:.4f} bits")
 
     # conditional entropy: use x=0
     mu0 = mu_E_cond_homodyne(0.0, 0.0, channel_params)
@@ -284,20 +280,55 @@ def holevo_bound_homodyne(
     S_cond_x = von_neumann_entropy(rho0_x)
     rho0_p = homodyne_gaussian_to_densitymatrix(sigma_E_cond_cov[1], mu0, ncut=ncut)
     S_cond_p = von_neumann_entropy(rho0_p)
-    print(f"[Holevo] S(rho_E|x=0): x={S_cond_x:.4f} bits, p={S_cond_p:.4f} bits")
 
     holevo_bits_x = S_avg_x - S_cond_x
     holevo_bits_p = S_avg_p - S_cond_p
 
-    t_total = time.time() - t_start
-    print(f"[Holevo] Total time: {t_total:.2f}s")
-    print(f"[Holevo] Result: χ_EB_x={holevo_bits_x:.4f} bits, χ_EB_p={holevo_bits_p:.4f} bits")
-
     return holevo_bits_x, holevo_bits_p
+
+def holevo_bound_homodyne_ppA(Va: float, T: float, xi: float, eta: float, Vel: float) -> float:
+        """
+        Compute the Holevo bound on the information between Bob and Eve in the case of the trusted homodyne detector, with Gaussian modulation,
+        in the asymptotic scenario.
+
+        Args:
+            Va (float): Alice's variance of modulation (in SNU).
+            T (float): transmittance of the channel.
+            xi (float): excess noise of the channel (in SNU).
+            eta (float): efficiency of the detector.
+            Vel (float): electronic noise of the detector (in SNU).
+
+        Returns:
+            float: Holevo's bound on the information between Eve and Bob in bits per symbol.
+        """
+        def I_E(Va, T, xi, eta, Vel):
+            V = Va + 1
+            chi_line = 1 / T - 1 + xi
+            chi_hom = (1 + Vel) / eta - 1
+            chi_tot = chi_line + chi_hom / T
+            A = V**2 * (1 - 2 * T) + 2 * T + T**2 * (V + chi_line) ** 2
+            B = T**2 * (V * chi_line + 1) ** 2
+            C = (V * B**0.5 + T * (V + chi_line) + A * chi_hom) / (T * (V + chi_tot))
+            D = B**0.5 * (V + B**0.5 * chi_hom) / (T * (V + chi_tot))
+            nu_1 = (0.5 * (A + (A**2 - 4 * B) ** 0.5)) ** 0.5
+            nu_2 = (0.5 * (A - (A**2 - 4 * B) ** 0.5)) ** 0.5
+            nu_3 = (0.5 * (C + (C**2 - 4 * D) ** 0.5)) ** 0.5
+            nu_4 = (0.5 * (C - (C**2 - 4 * D) ** 0.5)) ** 0.5
+            return (
+                g((nu_1 - 1) / 2)
+                + g((nu_2 - 1) / 2)
+                - g((nu_3 - 1) / 2)
+                - g((nu_4 - 1) / 2)
+            )
+        I_E_x = I_E(Va[0], T, xi, eta, Vel)
+        I_E_p = I_E(Va[1], T, xi, eta, Vel)
+        return I_E_x, I_E_p
+    
+
 
 ####### Homodyne Keyrate #######
 
-def keyrate_homodyne(
+def keyrate_homodyne_ppB(
         P_A_x: float,
         P_B_x: float,
         I_AB_x: float,
@@ -309,3 +340,10 @@ def keyrate_homodyne(
         beta: float = 0.95,
         ):
     return 0.5 * P_B_x * P_A_x * (beta * I_AB_x - IE_x) + 0.5 * P_B_p * P_A_p * (beta * I_AB_p - IE_p)
+
+def keyrate_homodyne_ppA(
+        I_AB_x: float,
+        IE_x: float,
+        beta: float = 0.95,
+        ):
+    return beta * I_AB_x - IE_x

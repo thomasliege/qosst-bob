@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from typing import Optional
 
 def heatmap(
     data_x: np.ndarray,
@@ -70,11 +71,69 @@ def histogram_comparison(
     ax2.grid(True, alpha=0.3)
 
     if cutoff is not None:
-        for ax, c in [(ax1, cutoff[0]), (ax2, cutoff[1])]:
-            ax.axvline(+c, color='k', linestyle='--', linewidth=1, label='Cutoff')
-            ax.axvline(-c, color='k', linestyle='--', linewidth=1)
+        for ax in [ax1, ax2]:
+            ax.axvline(+cutoff, color='k', linestyle='--', linewidth=1, label='Cutoff')
+            ax.axvline(-cutoff, color='k', linestyle='--', linewidth=1)
         ax1.legend()
         ax2.legend()
         
     plt.tight_layout()
     return fig, (ax1, ax2)
+
+def keyrate_comparison_plot(
+    results: dict,
+) -> tuple[plt.Figure, plt.Axes]:
+    """
+    Plot key rate comparison similar to the reference image.
+    
+    Args:
+        results (dict): Dictionary containing results at different stages with keys:
+            - 'raw': {'beta_I_AB': float, 'I_E': float, 'KR': float}
+            - 'alice_ps': {'beta_I_AB': float, 'I_E': float, 'KR': float}
+            - 'bob_ps': {'beta_I_AB': float, 'I_E': float, 'KR': float}
+        
+    Returns:
+        tuple[plt.Figure, plt.Axes]: The matplotlib figure and axes objects.
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Extract data
+    stages = ['Raw\nPS', "Alice's\nPS", "Bob's\nPS"]
+    stage_keys = ['raw', 'alice_ps', 'bob_ps']
+    
+    beta_I_AB = [results[key]['beta_I_AB'] for key in stage_keys]
+    I_E = [results[key]['I_E'] for key in stage_keys]
+    KR = [results[key]['KR'] for key in stage_keys]
+    
+    # Set up bar positions
+    x = np.arange(len(stages))
+    width = 0.25
+    
+    # Create bars
+    bars1 = ax.bar(x - width, beta_I_AB, width, label=r'$\beta I_{AB}$', color='#7FB3D5', edgecolor='black')
+    bars2 = ax.bar(x, I_E, width, label=r'$I_E$', color='#F0C19A', edgecolor='black')
+    bars3 = ax.bar(x + width, KR, width, label='KR', color='#C5A8D9', edgecolor='black')
+    
+    optimal_value = np.max(KR)
+    
+    # Add optimal reference line
+    ax.axhline(y=optimal_value, color='black', linestyle='--', linewidth=1.5, label='Optimal GG02')
+    
+    # Formatting
+    ax.set_ylabel('Mutual Information', fontsize=12)
+    ax.set_xticks(x)
+    ax.set_xticklabels(stages, fontsize=11)
+    ax.legend(fontsize=10, loc='upper left')
+    ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    # Add secondary y-axis for Key Rate
+    ax2 = ax.twinx()
+    ax2.set_ylabel('Key Rate (bits/symbols)', fontsize=12)
+    ax2.set_yscale('log')
+    ax2.spines['top'].set_visible(False)
+    
+    plt.tight_layout()
+    return fig, ax
+
