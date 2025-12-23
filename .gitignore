@@ -200,3 +200,4 @@ qosst_bob/synchronization/data/
 qosst_bob/phase_recovery/data/
 qosst_bob/phase_recovery/plot/
 qosst_bob/phase_recovery/test/
+post_processing/data/

@@ -1,7 +1,13 @@
 import numpy as np
 import qutip as qt
-from scipy.linalg import sqrtm, eigh, expm, svd
 from thewalrus.decompositions import williamson, blochmessiah
+
+def normalize(alice_symbols, bob_symbols, shot, photon_number):
+    """ Normalize Alice and Bob symbols."""
+    dataAlice_normalized = alice_symbols * np.sqrt(photon_number / np.mean(np.abs(alice_symbols)**2))
+    dataBob_normalized = bob_symbols / np.sqrt(shot)
+
+    return dataAlice_normalized, dataBob_normalized
 
 def williamson_decomposition(cov: np.ndarray):
     """
@@ -20,11 +26,11 @@ def williamson_decomposition(cov: np.ndarray):
 # -------------------------
 # Gaussian state -> Fock density matrix
 # -------------------------
-def gaussian_to_densitymatrix(cov: np.ndarray, mean: np.ndarray, ncut: int = 20):
+def homodyne_gaussian_to_densitymatrix(cov: np.ndarray, mu: np.ndarray, ncut: int = 20):
     """
     Convert a 2-mode Gaussian state to qutip density matrix.
     cov: 4x4 covariance in (q,p,q,p) ordering
-    mean: length-4 mean vector (q1,p1,q2,p2)
+    mu: length-4 vector (q1,p1,q2,p2)
     """
     S, nu = williamson_decomposition(cov)
     
@@ -37,9 +43,32 @@ def gaussian_to_densitymatrix(cov: np.ndarray, mean: np.ndarray, ncut: int = 20)
     U_G = gaussian_unitary_from_symplectic(S, ncut)
     rho = U_G * rho_th * U_G.dag()
     
-    # Displace by mean (q1,p1,q2,p2) -> (alpha1, alpha2) in ladder basis
-    alpha1 = (mean[0] + 1j * mean[1]) / 2.0
-    alpha2 = (mean[2] + 1j * mean[3]) / 2.0
+    alpha1 = (mu[0]) / 2.0
+    alpha2 = (mu[2]) / 2.0
+    D = qt.tensor(qt.displace(ncut, alpha1), qt.displace(ncut, alpha2))
+    rho_final = D * rho * D.dag()
+    
+    return rho_final
+
+def heterodyne_gaussian_to_densitymatrix(cov: np.ndarray, mu: np.ndarray, ncut: int = 20):
+    """
+    Convert a 2-mode Gaussian state to qutip density matrix.
+    cov: 4x4 covariance in (q,p,q,p) ordering
+    mu: length-4 vector (q1,p1,q2,p2)
+    """
+    S, nu = williamson_decomposition(cov)
+    
+    # Thermal state with Williamson eigenvalues
+    nbar = np.maximum((nu - 1.0) / 2.0, 0.0)
+    rho_th = qt.tensor(qt.thermal_dm(ncut, nbar[0]), 
+                       qt.thermal_dm(ncut, nbar[1]))
+    
+    # Apply Bloch-Messiah unitary
+    U_G = gaussian_unitary_from_symplectic(S, ncut)
+    rho = U_G * rho_th * U_G.dag()
+    
+    alpha1 = (mu[0] + 1j * mu[1]) / 2.0
+    alpha2 = (mu[2] + 1j * mu[3]) / 2.0
     D = qt.tensor(qt.displace(ncut, alpha1), qt.displace(ncut, alpha2))
     rho_final = D * rho * D.dag()
     
@@ -99,3 +128,15 @@ def _symplectic_to_unitary(S_ortho: np.ndarray, ncut: int):
     a1 = qt.tensor(qt.destroy(ncut), qt.qeye(ncut))
     a2 = qt.tensor(qt.qeye(ncut), qt.destroy(ncut))
     return (theta * (a1.dag() * a2 - a1 * a2.dag())).expm()
+
+def von_neumann_entropy(rho: qt.Qobj):
+    evals = rho.eigenenergies()
+    evals = np.real_if_close(evals)
+    evals = np.maximum(evals, 0.0)
+    tot = np.sum(evals)
+    if tot <= 0:
+        return 0.0
+    probs = evals / tot
+    probs = probs[probs > 0]
+    S = -np.sum(probs * np.log2(probs))
+    return S
