@@ -2,27 +2,57 @@ import numpy as np
 from utils import heterodyne_gaussian_to_densitymatrix, von_neumann_entropy
 from math import erfc
 from qosst_skr.utils import g
-import time
 from tqdm import tqdm
 
 ####### Mutual Information #######
 
-# TODO
-def I_AB_heterodyne_ppA(V_A, V_bob, C, gain):
+def I_AB_heterodyne_ppA(Va, Vb, C, P_A_x, P_A_p):
     """
     Computes I_AB^x = 0.5 * log2( VAx / VAx|Bx ), where VAx = (Vx + 1)/2,
     and VAx|Bx = VAx - Cx^2/(2 Vbx). All variances in SNU.
     """
-    VAx = (V_A[0] + 1.0) / 2.0
-    VAp = (V_A[1] + 1.0) / 2.0
-    VAx_cond = VAx - (C[0]**2) / (2.0 * V_bob[0])
-    VAp_cond = VAp - (C[1]**2) / (2.0 * V_bob[1])
-    P_A_x = 1 / np.sqrt(1 + 2 * gain[0]**2 * V_A[0])
-    P_A_p = 1 / np.sqrt(1 + 2 * gain[1]**2 * V_A[1])
-    I_AB = 0.5 * P_A_x * 0.5 * np.log2(VAx / VAx_cond) + 0.5 * P_A_p * 0.5 * np.log2(VAp / VAp_cond)
+    Valice_x = (Va[0] + 1) / 2
+    Valice_p = (Va[1] + 1) / 2
+
+    Vbob_x = (Vb[0] + 1) / 2
+    Vbob_p = (Vb[1] + 1) / 2
+
+    VAx_cond = Valice_x - C[0]**2 / (4 * Vbob_x)
+    VAp_cond = Valice_p - C[1]**2 / (4 * Vbob_p)
+
+    IAB_x = 0.5 * P_A_x * np.log2(Valice_x / VAx_cond)
+    IAB_p = 0.5 * P_A_p * np.log2(Valice_p / VAp_cond)
+
+    I_AB = IAB_x + IAB_p
     return I_AB
 
-def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na):
+def I_AB_heterodyne_true(Va, T, xi, eta, vel):
+    """
+    Computes I_AB for heterodyne detection without post-selection.
+
+    Parameters
+    ----------
+    Va : float
+        Alice's variance of modulation (in SNU).
+    T : float
+        Transmittance of the channel.
+    xi : float
+        Excess noise of the channel (in SNU).
+    eta : float
+        Efficiency of the detector.
+    vel : float
+        Electronic noise of the detector (in SNU).
+    Returns
+    -------
+    I_AB : float
+        Mutual information in bits.
+    """
+    chi_line = 1 / T - 1 + xi
+    chi_het = (1 + (1 - eta) + 2 * vel) / eta
+    chi_tot = chi_line + chi_het / T
+    return np.log2((1 + Va + chi_tot) / (1 + chi_tot))
+
+def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na, P_B):
     """
     Computes I_AB after Bob's post-selection.
 
@@ -42,13 +72,16 @@ def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na):
         (xmin, xmax) range for the grid.
     p_range : tuple
         (pmin, pmax) range for the grid.
+    na : float
+        Alice's post-selection bound (if any); set to np.inf for no bound.
+    P_B : float
+        Probability of Bob's post-selection.
 
     Returns
     -------
     I_AB : float
         Mutual information in bits after Bob's post-selection.
     """
-
     # Construct axes and 4D grid for joint (xa, pa, xb, pb) distribution
     xa_vals = np.arange(x_range[0], x_range[1] + delta, delta)
     pa_vals = np.arange(p_range[0], p_range[1] + delta, delta)
@@ -65,11 +98,9 @@ def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na):
     pa_flat = pa.flatten()
     xb_flat = xb.flatten()
     pb_flat = pb.flatten()
-    
-    # Stack into (k, N) array where N is total number of grid points
     v = np.array([xa_flat, pa_flat, xb_flat, pb_flat])
     
-    ######################## Tres bizarre de ne considérer que Vx et pas Vp... ########################
+    ######################## Tres bizarre de ne considérer que Vx et pas Vp ########################
     sigma_AB_C = np.array([[(Va[0] + 1) / 2, 0, C[0] / 2, 0],
                            [0, (Va[0] + 1) / 2, 0, -C[1] / 2],
                             [C[0] / 2, 0, (Vb[0] + 1) / 2, 0],
@@ -79,26 +110,19 @@ def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na):
     denominator = np.sqrt((2 * np.pi)**k * np.linalg.det(sigma_AB_C))
     # Compute quadratic form for each point: v.T @ Sigma_inv @ v
     numerator = np.exp(-0.5 * np.sum(v * (sigma_AB_C_inv @ v), axis=0))
+    # = equivalent to: for each column i: v[:,i]^T @ sigma_inv @ v[:,i])
 
     fAB_flat = numerator / denominator
     # Reshape back to 4D grid
     fAB = fAB_flat.reshape(xa.shape)
-
-    # P_B_theoretical = erfc(-cutoff**2 / (2 * Vb[0])) 
-    P_B_theoretical = np.exp(-cutoff**2 / (2 * Vb[0])) 
-    eps = 1e-300
-    PB = max(P_B_theoretical, eps)
+    print(np.sum(fAB_flat) * delta**4)  # Should be 1 before post-selection
     
     # Build mask: Bob's circular post-selection + Alice's bounds (if na provided)
     mask_bob = (xb**2 + pb**2 >= cutoff**2)
     mask_alice = (np.abs(xa) <= na) & (np.abs(pa) <= na)
     mask = mask_bob & mask_alice
     
-    fAB_post = fAB * mask / PB
-
-    # Normalize (small numerical drift)
-    Z = np.sum(fAB_post) * delta**4  # 4D volume element
-    fAB_post /= Z
+    fAB_post = fAB * mask / P_B
 
     # Compute marginals p_A and p_B
     # Sum over xb and pb (axes 2 and 3) to get p_A(xa, pa)
@@ -124,8 +148,8 @@ def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na):
 ####### Holevo bound computation #######
 
 def compute_covariances_heterodyne(
-    V_A_x: float,
-    V_A_p: float,
+    Va_x: float,
+    Va_p: float,
     Vb_x: float,
     Vb_p: float,
     transmittance: float,
@@ -134,8 +158,8 @@ def compute_covariances_heterodyne(
     eta: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     
-    V_E_x =  transmittance * W_noise[0] + (1 - transmittance) * (V_A_x + excess_noise)
-    V_E_p =  transmittance * W_noise[1] + (1 - transmittance) * (V_A_p + excess_noise)
+    V_E_x =  transmittance * W_noise[0] + (1 - transmittance) * (Va_x + excess_noise)
+    V_E_p =  transmittance * W_noise[1] + (1 - transmittance) * (Va_p + excess_noise)
 
     
     r1 = 0.5*np.log(W_noise[0] + np.sqrt(W_noise[0]**2 - W_noise[0] / W_noise[1]))
@@ -143,8 +167,8 @@ def compute_covariances_heterodyne(
     C_E_x = 0.5 * (-np.exp(2 * r1) + np.exp(2 * r2))
     C_E_p = 0.5 * (-np.exp(-2 * r1) + np.exp(-2 * r2))
 
-    C_E1_Bx = np.sqrt(eta * transmittance * (1 - transmittance)) * (W_noise[0] - (V_A_x + excess_noise))
-    C_E1_Bp = np.sqrt(eta * transmittance * (1 - transmittance)) * (W_noise[1] - (V_A_p + excess_noise))
+    C_E1_Bx = np.sqrt(eta * transmittance * (1 - transmittance)) * (W_noise[0] - (Va_x + excess_noise))
+    C_E1_Bp = np.sqrt(eta * transmittance * (1 - transmittance)) * (W_noise[1] - (Va_p + excess_noise))
     C_E2_Bx = np.sqrt(eta * (1 - transmittance)) * C_E_x
     C_E2_Bp = np.sqrt(eta * (1 - transmittance)) * C_E_p
 

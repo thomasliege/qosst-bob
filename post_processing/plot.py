@@ -112,7 +112,6 @@ def keyrate_comparison_plot(
     # Create bars
     bars1 = ax.bar(x - width, beta_I_AB, width, label=r'$\beta I_{AB}$', color='#7FB3D5', edgecolor='black')
     bars2 = ax.bar(x, I_E, width, label=r'$I_E$', color='#F0C19A', edgecolor='black')
-    bars3 = ax.bar(x + width, KR, width, label='KR', color='#C5A8D9', edgecolor='black')
     
     optimal_value = np.max(KR)
     
@@ -123,16 +122,20 @@ def keyrate_comparison_plot(
     ax.set_ylabel('Mutual Information', fontsize=12)
     ax.set_xticks(x)
     ax.set_xticklabels(stages, fontsize=11)
-    ax.legend(fontsize=10, loc='upper left')
     ax.grid(axis='y', alpha=0.3, linestyle='-', linewidth=0.5)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
     # Add secondary y-axis for Key Rate
     ax2 = ax.twinx()
+    bars3 = ax2.bar(x + width, KR, width, label='KR', color='#C5A8D9', edgecolor='black')
     ax2.set_ylabel('Key Rate (bits/symbols)', fontsize=12)
-    ax2.set_yscale('log')
     ax2.spines['top'].set_visible(False)
+
+    # Combine legends from both axes
+    handles1, labels1 = ax.get_legend_handles_labels()
+    handles2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(handles1 + handles2, labels1 + labels2, loc='upper right', fontsize=10)
     
     plt.tight_layout()
     return fig, ax

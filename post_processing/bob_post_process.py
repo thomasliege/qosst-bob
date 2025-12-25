@@ -96,19 +96,13 @@ def bob_heterodyne_post_selection(bob_symbols, Vbob, cutoff):
 
     bob_symbols_kept = bob_symbols[mask]
 
-    # Empirical acceptance probabilities
-    P_B_empirical = np.mean(mask)
-
     # Theoretical acceptance probabilities
     p_b = 1 / (np.pi * np.sqrt((Vbob[0] + 1)*(Vbob[1] + 1))) * np.exp(- (x_vals**2)/(Vbob[0] + 1) - (p_vals**2)/(Vbob[1] + 1))
     # TODO: Vbob_x != V_bob_p, maybe need to compute the actual acceptance proba
-    ######################### Mistake in the paper, P_B = 1 - erf(-cutoff/sqrt(2 Vb)) #########################
-    # P_B_theoretical = erfc(-cutoff**2 / (2 * Vbob[0]))  # Approximation assuming Vbob_x = Vbob_p
-    P_B_theoretical = np.exp(-cutoff**2 / (2 * Vbob[0])) 
+    P_B_theoretical = np.exp(-cutoff**2 / (Vbob[0] + 1)) 
 
     return {
         "bob_symbols": bob_symbols_kept,
         "mask": mask,
-        "P_B_empirical": float(P_B_empirical),
         "P_B_theoretical": float(P_B_theoretical),
     }

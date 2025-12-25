@@ -21,9 +21,9 @@ def alice_post_selection(alice_symbols: np.ndarray, gain: np.ndarray, Va: np.nda
     P_A_theoretical_p = 1 / np.sqrt(1 + 2 * gain[1]**2 * Va[1])
 
     # Get the new effective variance modulation
-    Vmod_new_x = Va[0] / (1 + 2 * gain[0]**2 * Va[0])
-    Vmod_new_p = Va[1] / (1 + 2 * gain[1]**2 * Va[1])
-    Vmod_new = np.array([Vmod_new_x, Vmod_new_p])
+    Vmod_x_tilde = Va[0] / (1 + 2 * gain[0]**2 * Va[0])
+    Vmod_p_tilde = Va[1] / (1 + 2 * gain[1]**2 * Va[1])
+    Vmod_tilde = np.array([Vmod_x_tilde, Vmod_p_tilde])
 
     post_selection_alice = {
         'alice_symbols': new_alice_symbols,
@@ -31,7 +31,7 @@ def alice_post_selection(alice_symbols: np.ndarray, gain: np.ndarray, Va: np.nda
         'P_A_empirical': P_A_empirical,
         'P_A_theoretical_x': P_A_theoretical_x,
         'P_A_theoretical_p': P_A_theoretical_p,
-        'Vmod_new': Vmod_new,
+        'Vmod_tilde': Vmod_tilde,
         }
 
     return post_selection_alice

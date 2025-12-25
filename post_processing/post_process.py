@@ -6,7 +6,7 @@ import numpy as np
 from alice_post_process import alice_post_selection
 from bob_post_process import bob_homodyne_post_selection, bob_heterodyne_post_selection
 from homodyne_keyrate import I_AB_homodyne_ppB, I_AB_homodyne_ppA, holevo_bound_homodyne_ppB, holevo_bound_homodyne_ppA, keyrate_homodyne_ppB, keyrate_homodyne_ppA, compute_covariances_homodyne
-from heterodyne_keyrate import I_AB_heterodyne_ppB, I_AB_heterodyne_ppA, holevo_bound_heterodyne_ppB, holevo_bound_heterodyne_ppA, keyrate_heterodyne_ppB, keyrate_heterodyne_ppA, compute_covariances_heterodyne
+from heterodyne_keyrate import I_AB_heterodyne_ppB, I_AB_heterodyne_ppA, holevo_bound_heterodyne_ppB, holevo_bound_heterodyne_ppA, keyrate_heterodyne_ppB, keyrate_heterodyne_ppA, compute_covariances_heterodyne, I_AB_heterodyne_true
 from plot import histogram_comparison, keyrate_comparison_plot
 from utils import normalize
 from qosst_skr.gaussian_trusted_heterodyne_asymptotic import GaussianTrustedHeterodyneAsymptotic
@@ -38,35 +38,37 @@ def homodyne_post_processing(
     post_selection_alice = alice_post_selection(
         alice_symbols, gain, Va
     )
-    Va_eff_x = post_selection_alice['Vmod_new'][0]
-    Va_eff_p = post_selection_alice['Vmod_new'][1]
-    print("[Alice post-selection] Vmod after post-selection:", post_selection_alice['Vmod_new'])
+    Vmod_tilde_x = post_selection_alice['Vmod_tilde'][0]
+    Vmod_tilde_p = post_selection_alice['Vmod_tilde'][1]
+    print("[Alice post-selection] Vmod after post-selection:", post_selection_alice['Vmod_tilde'])
     alice_symbols_ppA = post_selection_alice['alice_symbols']
     bob_symbols_ppA = bob_symbols[post_selection_alice['mask']]
+    P_A_x = post_selection_alice['P_A_theoretical_x']
+    P_A_p = post_selection_alice['P_A_theoretical_p']
 
-    V_A_x = Va_eff_x + 1
-    Vbob_x = transmittance * V_A_x + transmittance * excess_noise + 1
+    Valice_x = (Vmod_tilde_x + 1)
+    Vbob_x = transmittance * (Valice_x + excess_noise) + 1 - transmittance
     
-    V_A_p = Va_eff_p + 1
-    Vbob_p = transmittance * V_A_p + transmittance * excess_noise + 1
-
+    Valice_p = (Vmod_tilde_p + 1)
+    Vbob_p = transmittance * (Valice_p + excess_noise) + 1 - transmittance
     Vbob = np.array([Vbob_x, Vbob_p])
     print("[Alice post-selection] Bob Vbob after Alice post-selection:", Vbob)
 
-    Cx = np.sqrt(transmittance * (V_A_x**2 - 1))
-    Cp = np.sqrt(transmittance * (V_A_p**2 - 1))
+    Cx = np.sqrt(transmittance * (Valice_x**2 - 1))
+    Cp = np.sqrt(transmittance * (Valice_p**2 - 1))
 
     print("[Alice post-selection] Mutual Information computation")
     I_AB_ppA = I_AB_homodyne_ppA(
-        V_A     = np.array([V_A_x, V_A_p]),
+        V_A     = np.array([Valice_x, Valice_p]),
         V_bob   = Vbob,
         C       = np.array([Cx, Cp]),
-        gain    = gain
+        P_A_x    = P_A_x,
+        P_A_p    = P_A_p,
     )
     
     print("[Alice post-selection] Holevo bound computation")
     I_E_ppA = holevo_bound_homodyne_ppA(
-        Va      = np.array([Va_eff_x, Va_eff_p]),
+        Va      = np.array([Vmod_tilde_x, Vmod_tilde_p]),
         T       = transmittance,
         xi      = excess_noise,
         eta     = eta,
@@ -101,7 +103,7 @@ def homodyne_post_processing(
     na = max(np.abs(alice_symbols.real).max(), np.abs(alice_symbols.imag).max())
     nb = max(np.abs(bob_symbols.real).max(), np.abs(bob_symbols.imag).max())
     I_AB_x, I_AB_p = I_AB_homodyne_ppB(
-        Va      = np.array([V_A_x, V_A_p]),
+        Va      = np.array([Valice_x, Valice_p]),
         Vb      = Vbob,
         C       = np.array([Cx, Cp]),
         cutoff  = cutoff,
@@ -115,8 +117,8 @@ def homodyne_post_processing(
     # Holevlo bound
     print("[Bob post-selection] Holevo Bound computation...")
     sigma_c, sigma_E_cond_x, sigma_E_cond_p = compute_covariances_homodyne(
-        V_A_x,
-        V_A_p,
+        Valice_x,
+        Valice_p,
         Vbob_x,
         Vbob_p,
         transmittance,
@@ -206,36 +208,42 @@ def heterodyne_post_processing(
     post_selection_alice = alice_post_selection(
         alice_symbols, gain, Va
     )
-    Va_eff_x = post_selection_alice['Vmod_new'][0]
-    Va_eff_p = post_selection_alice['Vmod_new'][1]
+    Vmod_tilde_x = post_selection_alice['Vmod_tilde'][0]
+    Vmod_tilde_p = post_selection_alice['Vmod_tilde'][1]
     P_A_x = post_selection_alice['P_A_theoretical_x']
     P_A_p = post_selection_alice['P_A_theoretical_p']
+    print(f"[Alice post-selection] Theoretical Alice acceptance probability x: {P_A_x}, p: {P_A_p}")
 
-    print("[Alice post-selection] Alice Vmod after post-selection:", post_selection_alice['Vmod_new'])
+    print("[Alice post-selection] Alice Vmod after post-selection:", post_selection_alice['Vmod_tilde'])
     alice_symbols_ppA = post_selection_alice['alice_symbols']
     bob_symbols_ppA = bob_symbols[post_selection_alice['mask']]
 
-    V_A_x = Va_eff_x + 1
-    Vbob_x = eta * transmittance * (V_A_x + excess_noise) + eta * (1 - transmittance) * W_noise[0] + (1 - eta) + 2 * vel 
+    Vx = (Vmod_tilde_x + 1)
+    Vbx_m = (eta * transmittance * (Vx + excess_noise) + eta * (1 - transmittance) * W_noise[0] + (1 - eta) + 1) / 2 + vel
+    Vbx = 2 * Vbx_m - 1
     
-    V_A_p = Va_eff_p + 1
-    Vbob_p = eta * transmittance * (V_A_p + excess_noise) + eta * (1 - transmittance) * W_noise[1] + (1 - eta) + 2 * vel 
+    Vp = (Vmod_tilde_p + 1)
+    Vbp_m = (eta * transmittance * (Vp + excess_noise) + eta * (1 - transmittance) * W_noise[1] + (1 - eta) + 1) / 2 + vel
+    Vbp = 2 * Vbp_m - 1
 
-    Vbob = np.array([Vbob_x, Vbob_p])
+    Vbob = np.array([Vbx, Vbp])
     print("[Alice post-selection] Bob Vbob after Alice post-selection:", Vbob)
 
-    Cx = np.sqrt(transmittance * (V_A_x**2 - 1))
-    Cp = np.sqrt(transmittance * (V_A_p**2 - 1))
+    Cx = np.sqrt(eta * transmittance * (Vx**2 - 1))
+    Cp = np.sqrt(eta * transmittance * (Vp**2 - 1))
+
     I_AB_ppA = I_AB_heterodyne_ppA(
-        V_A     = np.array([V_A_x, V_A_p]),
-        V_bob   = Vbob,
-        C       = np.array([Cx, Cp]),
-        gain    = gain
+        Va       = np.array([Vx, Vp]),
+        Vb       = np.array([Vbx, Vbp]),
+        C        = np.array([Cx, Cp]),
+        P_A_x    = P_A_x,
+        P_A_p    = P_A_p,
     )
+
     print(f"[Alice post-selection] Mutual Information computation : {I_AB_ppA:.4f} bits/symbols")
 
     I_E_ppA_x, I_E_ppA_p = holevo_bound_heterodyne_ppA(
-        Va      = np.array([V_A_x, V_A_p]),
+        Va      = np.array([Vmod_tilde_x, Vmod_tilde_p]),
         T       = transmittance,
         xi      = excess_noise,
         eta     = eta,
@@ -260,6 +268,7 @@ def heterodyne_post_processing(
     )
     alice_symbols_ppB = alice_symbols_ppA[post_selection_bob['mask']]
     bob_symbols_ppB = post_selection_bob['bob_symbols']
+    P_B = post_selection_bob['P_B_theoretical']
 
     # Determine x_range and p_range based on percentiles
     q_vals = np.real(bob_symbols_ppB)
@@ -277,7 +286,7 @@ def heterodyne_post_processing(
     na = max(np.abs(alice_symbols.real).max(), np.abs(alice_symbols.imag).max())
     
     I_AB_ppB = I_AB_heterodyne_ppB(
-        Va      = np.array([V_A_x, V_A_p]),
+        Va      = np.array([Vx, Vp]),
         Vb      = Vbob,
         C       = np.array([Cx, Cp]),
         cutoff  = cutoff,
@@ -285,16 +294,17 @@ def heterodyne_post_processing(
         x_range = x_range,
         p_range = p_range,
         na     = na,
+        P_B     = P_B,
     )
     print(f"[Bob post-selection] Mutual Information computation : {I_AB_ppB:.4f} bits/symbols")
 
     # Holevlo bound
     # Compute covariance matrices for Eve (homodyne case)
     sigma_c, sigma_E_cond, _ = compute_covariances_heterodyne(
-        V_A_x,
-        V_A_p,
-        Vbob_x,
-        Vbob_p,
+        Vx,
+        Vp,
+        Vbob[0],
+        Vbob[1],
         transmittance,
         excess_noise,
         W_noise,
@@ -304,7 +314,7 @@ def heterodyne_post_processing(
     I_E_ppB = holevo_bound_heterodyne_ppB(
             sigma_E_cond,
             sigma_c,
-            np.array([Vbob_x, Vbob_p]),
+            np.array([Vbx, Vbp]),
             cutoff,
             delta,
             x_range,
@@ -316,9 +326,8 @@ def heterodyne_post_processing(
     # Compute key rate
     
     P_B = post_selection_bob['P_B_theoretical']
-    P_B_exp = post_selection_bob['P_B_empirical']
 
-    print(f"[Bob post-selection] Theoretical Bob acceptance probability: {P_B}, Empirical: {P_B_exp}")
+    print(f"[Bob post-selection] Theoretical Bob acceptance probability: {P_B}")
 
     print("[Bob post-selection] Secret Key Rate computation...")
     skr_ppB = 100e6 * keyrate_heterodyne_ppB(
@@ -364,7 +373,7 @@ def heterodyne_post_processing(
 
 
 def main():
-    folder = 'C:\\Users\\tliege\\LIP6\\qosst-bob\\post_processing\\data\\'
+    folder = 'C:\\Users\\tliege\\LIP6\\qosst-bob\\post_processing\\data\\good_data\\'
     config_bob = Configuration(folder + 'config_bob.toml')
     alice_symbols = np.load(folder + 'alice_symbols.npy')
     bob_symbols = np.load(folder + 'bob_symbols.npy')
@@ -392,9 +401,9 @@ def main():
         vel,
         eta,
         alice_photon_number,
-        W_noise = np.array([1.02, 1.01]),
+        W_noise = np.array([1.0, 1.0]),
         beta = 0.95,
-        gain= np.array([0.6, 0.6]),
+        gain= np.array([0, 0]),
         cutoff= 1.0,
         delta = 0.5,
         plot = True,

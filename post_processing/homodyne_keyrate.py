@@ -6,19 +6,17 @@ import tqdm
 
 ####### Mutual Information #######
 
-def I_AB_homodyne_ppA(V_A, V_bob, C, gain):
+def I_AB_homodyne_ppA(Va, Vb, C, P_A_x, P_A_p):
     """
     Computes I_AB^x = 0.5 * log2( VAx / VAx|Bx ), where VAx = (Vx + 1)/2,
     and VAx|Bx = VAx - Cx^2/(2 Vbx). All variances in SNU.
     """
-    VAx = (V_A[0] + 1.0) / 2.0
-    VAp = (V_A[1] + 1.0) / 2.0
-    VBx = (V_bob[0] + 1.0) / 2.0
-    VBp = (V_bob[1] + 1.0) / 2.0
-    VAx_cond = VAx - (C[0]**2) / (4.0 * VBx)
-    VAp_cond = VAp - (C[1]**2) / (4.0 * VBp)
-    P_A_x = 1 / np.sqrt(1 + 2 * gain[0]**2 * V_A[0])
-    P_A_p = 1 / np.sqrt(1 + 2 * gain[1]**2 * V_A[1])
+    VAx = (Va[0] + 1.0) / 2.0
+    VAp = (Va[1] + 1.0) / 2.0
+
+    VAx_cond = VAx - (C[0]**2) / (2.0 * Vb[0])
+    VAp_cond = VAp - (C[1]**2) / (2.0 * Vb[1])
+    
     I_AB = 0.5 * P_A_x * 0.5 * np.log2(VAx / VAx_cond) + 0.5 * P_A_p * 0.5 * np.log2(VAp / VAp_cond)
     return I_AB
 
