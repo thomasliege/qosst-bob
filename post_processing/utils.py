@@ -1,6 +1,7 @@
 import numpy as np
 import qutip as qt
-from thewalrus.decompositions import williamson, blochmessiah
+from thewalrus.decompositions import williamson, blochmessiah, sympmat
+from scipy.linalg import logm
 
 def normalize(alice_symbols, bob_symbols, shot, photon_number):
     """ Normalize Alice and Bob symbols."""
@@ -16,16 +17,12 @@ def williamson_decomposition(cov: np.ndarray):
     such that: cov = S.T @ diag([nu1,nu1,nu2,nu2]) @ S
     Reference: numerical recipe using diagonalization of i Omega sigma.
     """
-    Db, S = williamson(cov)
+    Db, S= williamson(cov)
     
     # Extract symplectic eigenvalues from diagonal matrix
     nu = np.diag(Db)[::2]  # Take indices [0, 2] -> [nu1, nu2]
     return S, nu
     
-
-# -------------------------
-# Gaussian state -> Fock density matrix
-# -------------------------
 def homodyne_gaussian_to_densitymatrix(cov: np.ndarray, mu: np.ndarray, ncut: int = 20):
     """
     Convert a 2-mode Gaussian state to qutip density matrix.
@@ -74,69 +71,103 @@ def heterodyne_gaussian_to_densitymatrix(cov: np.ndarray, mu: np.ndarray, ncut: 
     
     return rho_final
 
-# -------------------------
-# Build Gaussian unitary (approx) from symplectic matrix
-# -------------------------
 def gaussian_unitary_from_symplectic(S: np.ndarray, ncut: int = 20):
     """
-    Build Gaussian unitary from symplectic matrix S using Bloch-Messiah decomposition.
-    S = O1 @ diag(exp(r1), exp(r1), exp(r2), exp(r2)) @ O2
+    Builds the QuTiP unitary operator U corresponding to symplectic matrix S
+    using the Bloch-Messiah decomposition. 
+    S = O2 @ D @ O1  ->  U = U_O2 * U_sq * U_O1
     """
-    # Bloch-Messiah decomposition
+    # 1. Bloch-Messiah decomposition (S = O1 @ D @ O2 in thewalrus notation)
     O1, D, O2 = blochmessiah(S)
     
-    # Extract diagonal elements
-    diag_D = np.diag(D)  # [d1, d2, d1^-1, d2^-1]
+    # 2. Reconstruct Passive Unitaries
+    # Note: O1 and O2 are applied first/last depending on vector convention.
+    # We maintain the order U = U_O1 * U_sq * U_O2 matching S operator order.
+    U_O1 = _passive_symplectic_to_unitary(O1, ncut)
+    U_O2 = _passive_symplectic_to_unitary(O2, ncut)
     
-    # Squeezing parameters: r such that d = exp(r)
-    # For vacuum/no squeezing: d = 1, r = 0
-    d1 = diag_D[0]
-    d2 = diag_D[1]
+    # 3. Reconstruct Squeezing Unitary
+    N = S.shape[0] // 2
+    diag_D = np.diag(D)
     
-    r1 = np.log(d1) if d1 > 0 else 0.0
-    r2 = np.log(d2) if d2 > 0 else 0.0
+    op_list = []
+    for i in range(N):
+        # FIX: Access the q-quadrature scaling for mode i.
+        # D is ordered (q1, p1, q2, p2, ...).
+        # Mode i's q-scaling is at index 2*i.
+        d_val = diag_D[2*i]
+        
+        # Calculate squeezing parameter r
+        # Scaling q -> d * q corresponds to squeeze factor r = -log(d)
+        r = -np.log(d_val)
+        
+        if abs(r) > 1e-10:
+            op_list.append(qt.squeeze(ncut, r))
+        else:
+            op_list.append(qt.qeye(ncut))
+            
+    if N == 1:
+        U_sq = op_list[0]
+    else:
+        U_sq = qt.tensor(op_list)
 
-    # Build bosonic operators
-    a1 = qt.tensor(qt.destroy(ncut), qt.qeye(ncut))
-    a2 = qt.tensor(qt.qeye(ncut), qt.destroy(ncut))
-    
-    # Build unitaries: O1, squeeze(r1), squeeze(r2), O2
-    U_O1 = _symplectic_to_unitary(O1, ncut)
-    U_O2 = _symplectic_to_unitary(O2, ncut)
-    
-    # Squeeze unitaries (handle zero squeezing)
-    if abs(r1) > 1e-10:
-        U_S1 = (r1 * (a1.dag()**2 - a1**2) / 2.0).expm()
-    else:
-        U_S1 = qt.qeye([ncut, ncut])
-    
-    if abs(r2) > 1e-10:
-        U_S2 = (r2 * (a2.dag()**2 - a2**2) / 2.0).expm()
-    else:
-        U_S2 = qt.qeye([ncut, ncut])
-    
-    # Compose: O2 @ diag(squeeze) @ O1
-    U = U_O2 * (U_S1 * U_S2) * U_O1
-    
+    # 4. Compose Total Unitary
+    U = U_O1 * U_sq * U_O2
     return U
 
-def _symplectic_to_unitary(S_ortho: np.ndarray, ncut: int):
-    """Convert orthogonal symplectic to qutip unitary (beamsplitter)."""
-    # For 2-mode: extract beamsplitter angle from S_ortho
-    # S_ortho rotation ~ exp(i*theta*(a1^† a2 - a1 a2^†))
-    theta = np.arctan2(S_ortho[0, 2], S_ortho[0, 0]) 
-    a1 = qt.tensor(qt.destroy(ncut), qt.qeye(ncut))
-    a2 = qt.tensor(qt.qeye(ncut), qt.destroy(ncut))
-    return (theta * (a1.dag() * a2 - a1 * a2.dag())).expm()
-
-def von_neumann_entropy(rho: qt.Qobj):
-    evals = rho.eigenenergies()
-    evals = np.real_if_close(evals)
-    evals = np.maximum(evals, 0.0)
-    tot = np.sum(evals)
-    if tot <= 0:
-        return 0.0
-    probs = evals / tot
-    probs = probs[probs > 0]
-    S = -np.sum(probs * np.log2(probs))
-    return S
+def _passive_symplectic_to_unitary(O: np.ndarray, ncut: int):
+    """
+    Converts an Orthogonal Symplectic matrix O (passive transform) to a QuTiP Unitary.
+    Corrects for sign conventions and Identity matrix edge cases.
+    """
+    N = O.shape[0] // 2
+    
+    # 1. Reorder from (q1, p1, ...) to (q1...qN, p1...pN) to extract X, Y blocks
+    perm_inds = []
+    for i in range(N): perm_inds.append(2*i)     # q indices
+    for i in range(N): perm_inds.append(2*i+1)   # p indices
+    
+    O_block = O[perm_inds][:, perm_inds]
+    
+    # Extract blocks: S_passive = [[X, Y], [-Y, X]]
+    X = O_block[:N, :N]
+    Y = O_block[:N, N:]
+    
+    # 2. Construct Complex Unitary
+    # Use (X - iY) to match annihilation operator transformation a' = U a
+    U_c = X - 1j * Y
+    
+    # 3. Compute Hamiltonian Generator
+    # U_c = exp(-i H_mat)  =>  H_mat = i * logm(U_c)
+    H_mat = 1j * logm(U_c)
+    
+    # 4. Lift to Fock Space Operator
+    # Use a Qobj of zeros to avoid 'complex' scalar errors
+    # if H_mat is all zeros (Identity case).
+    
+    # Create a list of Identity operators for tensor product structure
+    id_list = [qt.qeye(ncut) for _ in range(N)]
+    if N == 1:
+        H_op = id_list[0] * 0.0
+    else:
+        H_op = qt.tensor(id_list) * 0.0
+        
+    # Build annihilation operators list for the Hamiltonian sum
+    a_ops = []
+    for i in range(N):
+        ops = [qt.qeye(ncut) for _ in range(N)]
+        ops[i] = qt.destroy(ncut)
+        if N == 1:
+            a_ops.append(ops[0])
+        else:
+            a_ops.append(qt.tensor(ops))
+        
+    # Sum terms: H_op = sum H_jk * a_j^dag * a_k
+    for j in range(N):
+        for k in range(N):
+            coeff = H_mat[j, k]
+            if abs(coeff) > 1e-10:
+                H_op += coeff * a_ops[j].dag() * a_ops[k]
+                
+    # 5. Exponentiate to get Unitary
+    return (-1j * H_op).expm()

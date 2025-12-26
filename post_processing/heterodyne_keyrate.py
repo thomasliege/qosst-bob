@@ -1,8 +1,9 @@
 import numpy as np
-from utils import heterodyne_gaussian_to_densitymatrix, von_neumann_entropy
+from utils import heterodyne_gaussian_to_densitymatrix
 from math import erfc
 from qosst_skr.utils import g
 from tqdm import tqdm
+import qutip as qt
 
 ####### Mutual Information #######
 
@@ -82,6 +83,7 @@ def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na, P_B):
     I_AB : float
         Mutual information in bits after Bob's post-selection.
     """
+    print(f"Pb_theoretical: {P_B}   cutoff: {cutoff}   na: {na}")
     # Construct axes and 4D grid for joint (xa, pa, xb, pb) distribution
     xa_vals = np.arange(x_range[0], x_range[1] + delta, delta)
     pa_vals = np.arange(p_range[0], p_range[1] + delta, delta)
@@ -102,7 +104,7 @@ def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na, P_B):
     
     ######################## Tres bizarre de ne considérer que Vx et pas Vp ########################
     sigma_AB_C = np.array([[(Va[0] + 1) / 2, 0, C[0] / 2, 0],
-                           [0, (Va[0] + 1) / 2, 0, -C[1] / 2],
+                           [0, (Va[1] + 1) / 2, 0, -C[1] / 2],
                             [C[0] / 2, 0, (Vb[0] + 1) / 2, 0],
                             [0, -C[1] / 2, 0, (Vb[1] + 1) / 2]])
     sigma_AB_C_inv = np.linalg.inv(sigma_AB_C)
@@ -113,33 +115,35 @@ def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na, P_B):
     # = equivalent to: for each column i: v[:,i]^T @ sigma_inv @ v[:,i])
 
     fAB_flat = numerator / denominator
-    # Reshape back to 4D grid
-    fAB = fAB_flat.reshape(xa.shape)
-    print(np.sum(fAB_flat) * delta**4)  # Should be 1 before post-selection
-    
-    # Build mask: Bob's circular post-selection + Alice's bounds (if na provided)
+    fAB = fAB_flat.reshape(xa.shape)   # Reshape back to 4D grid
+
+    # Build mask: Bob's circular post-selection + Alice's bounds
     mask_bob = (xb**2 + pb**2 >= cutoff**2)
     mask_alice = (np.abs(xa) <= na) & (np.abs(pa) <= na)
     mask = mask_bob & mask_alice
-    
+
     fAB_post = fAB * mask / P_B
 
-    # Compute marginals p_A and p_B
     # Sum over xb and pb (axes 2 and 3) to get p_A(xa, pa)
     fA = np.sum(fAB_post, axis=(2, 3)) * delta**2
     # Sum over xa and pa (axes 0 and 1) to get p_B(xb, pb)
     fB = np.sum(fAB_post, axis=(0, 1)) * delta**2
 
-    # Avoid log(0)
-    eps = 1e-20
-    fAB_safe = np.maximum(fAB_post, eps)
-    fA_safe  = np.maximum(fA, eps)
-    fB_safe  = np.maximum(fB, eps)
+    ####TEST####
+    print(np.sum(fAB_post) * delta**4)   # must be 1
+    print(np.sum(fA) * delta**2)         # must be 1
+    print(np.sum(fB) * delta**2)         # must be 1
+    # Integrate Alice marginal back to Bob
+    fB_from_A = np.sum(fAB_post, axis=(0,1)) * delta**2
+    print(np.max(np.abs(fB - fB_from_A)))
+    fA_from_B = np.sum(fAB_post, axis=(2,3)) * delta**2
+    print(np.max(np.abs(fA - fA_from_B)))
+    #############
 
     # Entropies and mutual information
-    H_A = -np.sum(fA_safe * np.log2(fA_safe)) * delta**2  # 2D integral over xa, pa
-    H_B = -np.sum(fB_safe * np.log2(fB_safe)) * delta**2  # 2D integral over xb, pb
-    H_AB = -np.sum(fAB_safe * np.log2(fAB_safe)) * delta**4  # 4D integral
+    H_A = -np.sum(fA[mask_alice.any(axis=(0,1))] * np.log2(fA[mask_alice.any(axis=(0,1))])) * delta**2  # 2D integral over xa, pa
+    H_B = -np.sum(fB[mask_bob.any(axis=(0,1))] * np.log2(fB[mask_bob.any(axis=(0,1))])) * delta**2  # 2D integral over xb, pb
+    H_AB = -np.sum(fAB_post[mask] * np.log2(fAB_post[mask])) * delta**4  # 4D integral
     I_AB = H_A + H_B - H_AB
 
     return I_AB
@@ -148,27 +152,24 @@ def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na, P_B):
 ####### Holevo bound computation #######
 
 def compute_covariances_heterodyne(
-    Va_x: float,
-    Va_p: float,
-    Vb_x: float,
-    Vb_p: float,
+    Va: np.ndarray,
+    Vb: np.ndarray,
     transmittance: float,
     excess_noise: float,
-    W_noise: float,
+    W_noise: np.ndarray,
     eta: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     
-    V_E_x =  transmittance * W_noise[0] + (1 - transmittance) * (Va_x + excess_noise)
-    V_E_p =  transmittance * W_noise[1] + (1 - transmittance) * (Va_p + excess_noise)
+    V_E_x =  transmittance * W_noise[0] + (1 - transmittance) * (Va[0] + excess_noise)
+    V_E_p =  transmittance * W_noise[1] + (1 - transmittance) * (Va[1] + excess_noise)
 
-    
     r1 = 0.5*np.log(W_noise[0] + np.sqrt(W_noise[0]**2 - W_noise[0] / W_noise[1]))
     r2 = 0.5* np.log(W_noise[0] / W_noise [1]) - 0.5*np.log(W_noise[0] + np.sqrt(W_noise[0]**2 - W_noise[0] / W_noise[1]))
     C_E_x = 0.5 * (-np.exp(2 * r1) + np.exp(2 * r2))
     C_E_p = 0.5 * (-np.exp(-2 * r1) + np.exp(-2 * r2))
 
-    C_E1_Bx = np.sqrt(eta * transmittance * (1 - transmittance)) * (W_noise[0] - (Va_x + excess_noise))
-    C_E1_Bp = np.sqrt(eta * transmittance * (1 - transmittance)) * (W_noise[1] - (Va_p + excess_noise))
+    C_E1_Bx = np.sqrt(eta * transmittance * (1 - transmittance)) * (W_noise[0] - (Va[0] + excess_noise))
+    C_E1_Bp = np.sqrt(eta * transmittance * (1 - transmittance)) * (W_noise[1] - (Va[1] + excess_noise))
     C_E2_Bx = np.sqrt(eta * (1 - transmittance)) * C_E_x
     C_E2_Bp = np.sqrt(eta * (1 - transmittance)) * C_E_p
 
@@ -178,15 +179,17 @@ def compute_covariances_heterodyne(
                         [0, C_E2_Bp]]).reshape(4,2)
     
     sigma_E = np.array([[V_E_x, 0, C_E_x, 0],
-                            [0, V_E_p, 0, C_E_p],
-                            [C_E_x, 0, W_noise[0], 0],
-                            [0, C_E_p, 0, W_noise[1]]])
+                        [0, V_E_p, 0, C_E_p],
+                        [C_E_x, 0, W_noise[0], 0],
+                        [0, C_E_p, 0, W_noise[1]]])
+    
+    
     
     ########## Erreur dans le papier sur Vb_x et Vb_p ? A discuter ##########
-    sigma_E_cond_x = sigma_E - 1 / Vb_x * sigma_c @ sigma_c.T
-    sigma_E_cond_p = sigma_E - 1 / Vb_p * sigma_c @ sigma_c.T
+    sigma_E_cond_x = sigma_E - 1 / (Vb[0] + 1) * sigma_c @ sigma_c.T
+    sigma_E_cond_p = sigma_E - 1 / (Vb[1] + 1) * sigma_c @ sigma_c.T
     
-    return sigma_c, sigma_E_cond_x, sigma_E_cond_p
+    return sigma_c, sigma_E_cond_x, sigma_E_cond_p, sigma_E
 
 def mu_E_cond_heterodyne(xb, pb, channel_params):
     """
@@ -198,14 +201,15 @@ def mu_E_cond_heterodyne(xb, pb, channel_params):
     Vb_x = channel_params['Vb_x']
     Vb_p = channel_params['Vb_p']
     vec = np.array([xb, pb])
-    invV = np.array([[1.0 / (Vb_x + 1) / 2, 0.0], [0.0, 1.0 / (Vb_p + 1) / 2]])
-    mu = sigma_c / np.sqrt(2) @ (invV @ vec)
+    invV = np.array([[1.0 / ((Vb_x + 1) / 2), 0.0], [0.0, 1.0 / ((Vb_p + 1) / 2)]])
+    mu = sigma_c @ (invV @ vec) / np.sqrt(2)
     return mu
 
 def holevo_bound_heterodyne_ppB(
     sigma_E_cond_cov,
     sigma_c,
     V_bob,
+    P_B,
     cutoff,
     delta,
     x_range,
@@ -215,28 +219,24 @@ def holevo_bound_heterodyne_ppB(
     """
     Compute Holevo bound after Bob's post-selection on x quadrature using the density-matrix averaging method.
     """
-    # 1) Build post-selected probability distribution tilde{p}_b(x)
-    # P_B_theoretical = erfc(-cutoff**2 / (2 * V_bob[0]))
-    P_B_theoretical = np.exp(-cutoff**2 / (2 * V_bob[0])) 
-    eps = 1e-300
-    P_B = max(P_B_theoretical, eps)
-
     def pb_tilde(x, p):
-        if x**2 +p**2 < cutoff:
+        if x**2 + p**2 < cutoff**2:
             return 0.0
-        return np.exp(-x**2 / (V_bob[0] + 1) - p**2 / (V_bob[1] + 1)) / (np.pi * (np.sqrt((V_bob[0] + 1) * (V_bob[1] + 1)) * P_B))
-
+        return (
+            np.exp(
+                -x**2 / (V_bob[0] + 1)
+                -p**2 / (V_bob[1] + 1)
+            )
+            / (np.pi * np.sqrt((V_bob[0] + 1)*(V_bob[1] + 1)) * P_B)
+        )
     # discretize
     x_bins = np.arange(x_range[0] + delta/2.0, x_range[1], delta)
     p_bins = np.arange(p_range[0] + delta/2.0, p_range[1], delta)
     # Create 2D grid for heterodyne (xb, pb)
     pb_tilde_list = np.array([[pb_tilde(x, p) for p in p_bins] for x in x_bins])
 
-    # normalize (numerical)
-    if pb_tilde_list.sum() <= 0:
-        raise ValueError("Post-selected pb had zero mass on chosen grid; enlarge x_range or p_range or shrink cutoff.")
-    pb_tilde_list = pb_tilde_list / np.sum(pb_tilde_list)
-    
+    print(f"Sum pb_tilde over grid: {np.sum(pb_tilde_list) * delta**2} (should be 1.0)")
+
     # prepare channel_params for mu function
     channel_params = {'sigma_c': sigma_c, 'Vb_x': V_bob[0], 'Vb_p': V_bob[1]}
 
@@ -257,27 +257,25 @@ def holevo_bound_heterodyne_ppB(
                 pbar.update(1)
 
     # 3) Average state
-    rho_avg = None
+    rho_avg = 0.0
     pb_flat = pb_tilde_list.flatten()
     for p, rho in zip(pb_flat, rhos):
         if rho is None:
             continue
-        if rho_avg is None:
-            rho_avg = p * rho
         else:
-            rho_avg = rho_avg + p * rho
+            rho_avg += p * rho * delta**2
 
     # 4) Entropy
-    S_avg = von_neumann_entropy(rho_avg)
+    S_avg = qt.entropy_vn(rho_avg)
 
     # conditional entropy: use x=0, p=0
     mu0 = mu_E_cond_heterodyne(0.0, 0.0, channel_params)
     rho0 = heterodyne_gaussian_to_densitymatrix(sigma_E_cond_cov, mu0, ncut=ncut)
-    S_cond = von_neumann_entropy(rho0)
+    S_cond = qt.entropy_vn(rho0)
 
     holevo_bits = S_avg - S_cond
 
-    return holevo_bits
+    return holevo_bits, rho_avg
 
 def holevo_bound_heterodyne_ppA(Va: float, T: float, xi: float, eta: float, Vel: float) -> float:
     """

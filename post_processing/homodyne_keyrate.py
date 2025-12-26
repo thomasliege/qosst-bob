@@ -1,5 +1,6 @@
 import numpy as np
-from utils import homodyne_gaussian_to_densitymatrix, von_neumann_entropy
+from utils import homodyne_gaussian_to_densitymatrix
+import qutip as qt
 from math import erfc
 from qosst_skr.utils import g
 import tqdm
@@ -269,15 +270,15 @@ def holevo_bound_homodyne_ppB(
             rho_avg_p = rho_avg_p + pp * rho
 
     # 4) Entropies
-    S_avg_x = von_neumann_entropy(rho_avg_x)
-    S_avg_p = von_neumann_entropy(rho_avg_p)
+    S_avg_x = qt.entropy_vn(rho_avg_x)
+    S_avg_p = qt.entropy_vn(rho_avg_p)
 
     # conditional entropy: use x=0
     mu0 = mu_E_cond_homodyne(0.0, 0.0, channel_params)
     rho0_x = homodyne_gaussian_to_densitymatrix(sigma_E_cond_cov[0], mu0, ncut=ncut)
-    S_cond_x = von_neumann_entropy(rho0_x)
+    S_cond_x = qt.entropy_vn(rho0_x)
     rho0_p = homodyne_gaussian_to_densitymatrix(sigma_E_cond_cov[1], mu0, ncut=ncut)
-    S_cond_p = von_neumann_entropy(rho0_p)
+    S_cond_p = qt.entropy_vn(rho0_p)
 
     holevo_bits_x = S_avg_x - S_cond_x
     holevo_bits_p = S_avg_p - S_cond_p

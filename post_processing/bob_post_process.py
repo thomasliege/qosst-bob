@@ -80,29 +80,48 @@ def bob_heterodyne_post_selection(bob_symbols, Vbob, cutoff):
             "P_B_theoretical_p": theoretical acceptance probability (paper),
         }
     """
-
-    # Apply Bob's box filter independently on x and p
     x_vals = bob_symbols.real
     p_vals = bob_symbols.imag
-
-    # Check actual variances
-    actual_var_x = np.var(x_vals)
-    actual_var_p = np.var(p_vals)
     print(f"[Bob Post-selection] Provided Vbob: x={Vbob[0]:.4f}, p={Vbob[1]:.4f}")
-    print(f"[Bob Post-selection] Actual variance: x={actual_var_x:.4f}, p={actual_var_p:.4f}")
     print(f"[Bob Post-selection] Cutoff={cutoff:.4f}")
 
     mask = (x_vals**2 + p_vals**2) >= cutoff**2
 
     bob_symbols_kept = bob_symbols[mask]
 
-    # Theoretical acceptance probabilities
-    p_b = 1 / (np.pi * np.sqrt((Vbob[0] + 1)*(Vbob[1] + 1))) * np.exp(- (x_vals**2)/(Vbob[0] + 1) - (p_vals**2)/(Vbob[1] + 1))
-    # TODO: Vbob_x != V_bob_p, maybe need to compute the actual acceptance proba
-    P_B_theoretical = np.exp(-cutoff**2 / (Vbob[0] + 1)) 
-
     return {
         "bob_symbols": bob_symbols_kept,
         "mask": mask,
-        "P_B_theoretical": float(P_B_theoretical),
     }
+
+def compute_PB(cutoff, Vb_x, Vb_p, delta, x_range, p_range):
+    """
+    Compute P_B(c) = ∫∫ F_B(xb, pb) * p_b(xb, pb) dxb dpb
+    
+    Parameters:
+    -----------
+    cutoff : float
+        The post-selection threshold c
+    Vb_x, Vb_p : float
+        Bob's variances in SNU
+    delta : float
+        Grid spacing
+    x_range, p_range : tuple
+        Integration ranges (xmin, xmax), (pmin, pmax)
+    """
+    # Create 2D grid
+    xb_vals = np.arange(x_range[0], x_range[1] + delta, delta)
+    pb_vals = np.arange(p_range[0], p_range[1] + delta, delta)
+    xb, pb = np.meshgrid(xb_vals, pb_vals, indexing='ij')
+    
+    # Bob's probability distribution (Gaussian in SNU)
+    p_b = np.exp(-xb**2 / (Vb_x + 1) - pb**2 / (Vb_p + 1)) / (np.pi * np.sqrt((Vb_x + 1) * (Vb_p + 1)))
+    
+    # Post-selection function F_B (indicator function for post-selection region)
+    # For circular post-selection: F_B = 1 if xb² + pb² ≥ c²
+    F_B = (xb**2 + pb**2 >= cutoff**2).astype(float)
+    
+    # Compute integral as Riemann sum
+    P_B = np.sum(F_B * p_b) * delta**2
+    
+    return P_B

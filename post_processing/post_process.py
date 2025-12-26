@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 from alice_post_process import alice_post_selection
-from bob_post_process import bob_homodyne_post_selection, bob_heterodyne_post_selection
+from bob_post_process import bob_homodyne_post_selection, bob_heterodyne_post_selection, compute_PB
 from homodyne_keyrate import I_AB_homodyne_ppB, I_AB_homodyne_ppA, holevo_bound_homodyne_ppB, holevo_bound_homodyne_ppA, keyrate_homodyne_ppB, keyrate_homodyne_ppA, compute_covariances_homodyne
 from heterodyne_keyrate import I_AB_heterodyne_ppB, I_AB_heterodyne_ppA, holevo_bound_heterodyne_ppB, holevo_bound_heterodyne_ppA, keyrate_heterodyne_ppB, keyrate_heterodyne_ppA, compute_covariances_heterodyne, I_AB_heterodyne_true
 from plot import histogram_comparison, keyrate_comparison_plot
@@ -13,6 +13,7 @@ from qosst_skr.gaussian_trusted_heterodyne_asymptotic import GaussianTrustedHete
 from qosst_bob.data import ExcessNoiseResults
 from qosst_core.configuration import Configuration
 import matplotlib.pyplot as plt
+from test.test_utils import compare_densities
 
 def homodyne_post_processing(
         alice_symbols: np.ndarray,                   # SNU
@@ -226,8 +227,7 @@ def heterodyne_post_processing(
     Vbp_m = (eta * transmittance * (Vp + excess_noise) + eta * (1 - transmittance) * W_noise[1] + (1 - eta) + 1) / 2 + vel
     Vbp = 2 * Vbp_m - 1
 
-    Vbob = np.array([Vbx, Vbp])
-    print("[Alice post-selection] Bob Vbob after Alice post-selection:", Vbob)
+    print("[Alice post-selection] Bob Vbob after Alice post-selection:", np.array([Vbx, Vbp]))
 
     Cx = np.sqrt(eta * transmittance * (Vx**2 - 1))
     Cp = np.sqrt(eta * transmittance * (Vp**2 - 1))
@@ -264,30 +264,34 @@ def heterodyne_post_processing(
     # Bob post-selection
     print("[Bob post-selection]...")
     post_selection_bob = bob_heterodyne_post_selection(
-        bob_symbols_ppA, Vbob, cutoff
+        bob_symbols_ppA, np.array([Vbx, Vbp]), cutoff
     )
     alice_symbols_ppB = alice_symbols_ppA[post_selection_bob['mask']]
     bob_symbols_ppB = post_selection_bob['bob_symbols']
-    P_B = post_selection_bob['P_B_theoretical']
 
     # Determine x_range and p_range based on percentiles
     q_vals = np.real(bob_symbols_ppB)
     p_vals = np.imag(bob_symbols_ppB)
     q_lo, q_hi = np.quantile(q_vals, [0.001, 0.999])
     p_lo, p_hi = np.quantile(p_vals, [0.001, 0.999])
-    pad_q = 0.5
-    pad_p = 0.5
+    pad_q = 10.0
+    pad_p = 10.0
     x_range = (q_lo - pad_q, q_hi + pad_q)
     p_range = (p_lo - pad_p, p_hi + pad_p)
     print("[Bob post-selection] Bob x_range after post-selection:", x_range)
     print("[Bob post-selection]Bob p_range after post-selection:", p_range)
 
+    P_B = compute_PB(cutoff, Vbx, Vbp, delta, x_range, p_range)
+    print(f"[Bob post-selection] Computed Bob acceptance probability: {P_B}")
+
+
     # Mutual information
-    na = max(np.abs(alice_symbols.real).max(), np.abs(alice_symbols.imag).max())
+    # na = max(np.abs(alice_symbols.real).max(), np.abs(alice_symbols.imag).max())
+    na = 100
     
     I_AB_ppB = I_AB_heterodyne_ppB(
         Va      = np.array([Vx, Vp]),
-        Vb      = Vbob,
+        Vb      = np.array([Vbx, Vbp]),
         C       = np.array([Cx, Cp]),
         cutoff  = cutoff,
         delta   = delta,
@@ -299,22 +303,21 @@ def heterodyne_post_processing(
     print(f"[Bob post-selection] Mutual Information computation : {I_AB_ppB:.4f} bits/symbols")
 
     # Holevlo bound
-    # Compute covariance matrices for Eve (homodyne case)
-    sigma_c, sigma_E_cond, _ = compute_covariances_heterodyne(
-        Vx,
-        Vp,
-        Vbob[0],
-        Vbob[1],
+    # Compute covariance matrices for Eve 
+    sigma_c, sigma_E_cond, _, sigma_E = compute_covariances_heterodyne(
+        np.array([Vx, Vp]),
+        np.array([Vbx, Vbp]),
         transmittance,
         excess_noise,
         W_noise,
         eta,
     )
     
-    I_E_ppB = holevo_bound_heterodyne_ppB(
+    I_E_ppB, rho_avg = holevo_bound_heterodyne_ppB(
             sigma_E_cond,
             sigma_c,
             np.array([Vbx, Vbp]),
+            P_B,
             cutoff,
             delta,
             x_range,
@@ -323,6 +326,7 @@ def heterodyne_post_processing(
         )
     print(f"[Bob post-selection] Holevo Bound computation : {I_E_ppB:.4f} bits/symbols")
 
+    compare_densities(rho_avg, sigma_E, ncut=10)
     # Compute key rate
     
     P_B = post_selection_bob['P_B_theoretical']
@@ -404,8 +408,8 @@ def main():
         W_noise = np.array([1.0, 1.0]),
         beta = 0.95,
         gain= np.array([0, 0]),
-        cutoff= 1.0,
-        delta = 0.5,
+        cutoff= 0.0,
+        delta = 0.2,
         plot = True,
     )
 
