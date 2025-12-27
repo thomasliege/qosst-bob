@@ -129,17 +129,6 @@ def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na, P_B):
     # Sum over xa and pa (axes 0 and 1) to get p_B(xb, pb)
     fB = np.sum(fAB_post, axis=(0, 1)) * delta**2
 
-    ####TEST####
-    print(np.sum(fAB_post) * delta**4)   # must be 1
-    print(np.sum(fA) * delta**2)         # must be 1
-    print(np.sum(fB) * delta**2)         # must be 1
-    # Integrate Alice marginal back to Bob
-    fB_from_A = np.sum(fAB_post, axis=(0,1)) * delta**2
-    print(np.max(np.abs(fB - fB_from_A)))
-    fA_from_B = np.sum(fAB_post, axis=(2,3)) * delta**2
-    print(np.max(np.abs(fA - fA_from_B)))
-    #############
-
     # Entropies and mutual information
     H_A = -np.sum(fA[mask_alice.any(axis=(0,1))] * np.log2(fA[mask_alice.any(axis=(0,1))])) * delta**2  # 2D integral over xa, pa
     H_B = -np.sum(fB[mask_bob.any(axis=(0,1))] * np.log2(fB[mask_bob.any(axis=(0,1))])) * delta**2  # 2D integral over xb, pb
@@ -183,8 +172,6 @@ def compute_covariances_heterodyne(
                         [C_E_x, 0, W_noise[0], 0],
                         [0, C_E_p, 0, W_noise[1]]])
     
-    
-    
     ########## Erreur dans le papier sur Vb_x et Vb_p ? A discuter ##########
     sigma_E_cond_x = sigma_E - 1 / (Vb[0] + 1) * sigma_c @ sigma_c.T
     sigma_E_cond_p = sigma_E - 1 / (Vb[1] + 1) * sigma_c @ sigma_c.T
@@ -201,8 +188,10 @@ def mu_E_cond_heterodyne(xb, pb, channel_params):
     Vb_x = channel_params['Vb_x']
     Vb_p = channel_params['Vb_p']
     vec = np.array([xb, pb])
-    invV = np.array([[1.0 / ((Vb_x + 1) / 2), 0.0], [0.0, 1.0 / ((Vb_p + 1) / 2)]])
-    mu = sigma_c @ (invV @ vec) / np.sqrt(2)
+    # invV = np.array([[1.0 / ((Vb_x + 1) / 2), 0.0], [0.0, 1.0 / ((Vb_p + 1) / 2)]])
+    # mu = sigma_c @ (invV @ vec) / np.sqrt(2)
+    invV = np.array([[1.0 / (Vb_x + 1), 0.0], [0.0, 1.0 / (Vb_p + 1)]])
+    mu = sigma_c @ (invV @ vec)
     return mu
 
 def holevo_bound_heterodyne_ppB(

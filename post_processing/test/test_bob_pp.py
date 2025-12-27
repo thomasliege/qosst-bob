@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from heterodyne_keyrate import compute_covariances_heterodyne, holevo_bound_heterodyne_ppB
+from heterodyne_keyrate import compute_covariances_heterodyne, holevo_bound_heterodyne_ppB, mu_E_cond_heterodyne
 from utils import normalize
 from qosst_bob.data import ExcessNoiseResults
 from qosst_core.configuration import Configuration
@@ -13,6 +13,8 @@ from bob_post_process import bob_heterodyne_post_selection
 
 def test_I_E_ppB(alice_symbols, bob_symbols, alice_photon_number, transmittance, excess_noise, eta, delta, vel):
     Va = np.array([alice_photon_number * 2, alice_photon_number * 2])
+
+    print(f"X var : {np.var(alice_symbols.real)}, P var : {np.var(alice_symbols.imag)}")
     post_selection_alice = alice_post_selection(
         alice_symbols, np.array([0.0, 0.0]), Va
     )
@@ -33,9 +35,11 @@ def test_I_E_ppB(alice_symbols, bob_symbols, alice_photon_number, transmittance,
     Vp = (Vmod_tilde_p + 1)
     Vbp_m = (eta * transmittance * (Vp + excess_noise) + eta * (1 - transmittance) + (1 - eta) + 1) / 2 + vel
     Vbp = 2 * Vbp_m - 1
+
     print("[Bob post-selection]...")
     post_selection_bob = bob_heterodyne_post_selection(
         bob_symbols_ppA, np.array([Vbx, Vbp]), 0.0)
+    
     alice_symbols_ppB = alice_symbols_ppA[post_selection_bob['mask']]
     bob_symbols_ppB = post_selection_bob['bob_symbols']
 
@@ -50,8 +54,7 @@ def test_I_E_ppB(alice_symbols, bob_symbols, alice_photon_number, transmittance,
     p_range = (p_lo - pad_p, p_hi + pad_p)
     print("[Bob post-selection] Bob x_range after post-selection:", x_range)
     print("[Bob post-selection]Bob p_range after post-selection:", p_range)
-    # Holevlo bound
-    # Compute covariance matrices for Eve 
+    
     sigma_c, sigma_E_cond, _, sigma_E = compute_covariances_heterodyne(
         np.array([Vx, Vp]),
         np.array([Vbx, Vbp]),
@@ -83,6 +86,23 @@ def test_I_E_ppB(alice_symbols, bob_symbols, alice_photon_number, transmittance,
     print(f"Raw I_E: {ie_raw:.6f} | PP-B I_E: {I_E_ppB:.6f}")
     return I_E_ppB, ie_raw
 
+def test_mu():
+    xb = 10.0
+    pb = 10.0
+    channel_params = {
+        'Vb_x': 5.0,
+        'Vb_p': 5.0,
+        'sigma_c': np.array([[1.0, 0.0], [0.0, 1.0]])
+    }
+    mu = mu_E_cond_heterodyne(
+        xb,
+        pb,
+        channel_params
+    )
+    print("Mu:", mu)
+    print("Expected Mu: [1.6667, 1.6667]")
+    return mu
+
 def main():
     folder = 'C:\\Users\\tliege\\LIP6\\qosst-bob\\post_processing\\data\\good_data\\'
     config_bob = Configuration(folder + 'config_bob.toml')
@@ -95,9 +115,6 @@ def main():
     vel = results.electronic_noise[0]
     eta = config_bob.bob.eta
     shot = results.shot_noise[0]
-    beta = 0.95
-
-    Va = 2 * alice_photon_number
     xi = xi / T
     T = T / eta
 
@@ -109,6 +126,8 @@ def main():
         alice_photon_number
     )
 
+    test_mu()
+
     I_E_ppB, ie_raw = test_I_E_ppB(
         data_alice_normalized,
         data_bob_normalized,
@@ -116,7 +135,7 @@ def main():
         T,
         xi,
         eta,
-        delta=0.2,
+        delta=0.5,
         vel=vel
     )
 

@@ -312,7 +312,7 @@ def heterodyne_post_processing(
         W_noise,
         eta,
     )
-    
+
     I_E_ppB, rho_avg = holevo_bound_heterodyne_ppB(
             sigma_E_cond,
             sigma_c,
