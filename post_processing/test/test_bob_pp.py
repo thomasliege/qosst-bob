@@ -10,6 +10,7 @@ from qosst_core.configuration import Configuration
 from qosst_skr.gaussian_trusted_heterodyne_asymptotic import GaussianTrustedHeterodyneAsymptotic
 from alice_post_process import alice_post_selection
 from bob_post_process import bob_heterodyne_post_selection
+from utils import williamson
 
 def test_I_E_ppB(alice_symbols, bob_symbols, alice_photon_number, transmittance, excess_noise, eta, delta, vel):
     Va = np.array([alice_photon_number * 2, alice_photon_number * 2])
@@ -103,6 +104,47 @@ def test_mu():
     print("Expected Mu: [1.6667, 1.6667]")
     return mu
 
+def test_eigenvalues(T, xi, vel, eta, alice_photon_number):
+    skr_raw, iab_raw, ie_raw = GaussianTrustedHeterodyneAsymptotic.skr(
+            Va=2 * alice_photon_number,
+            T=T,
+            xi=xi,
+            eta=eta,
+            Vel=vel,
+            beta=0.95
+        )
+    Vx = (2 * alice_photon_number + 1)
+    Vbx_m = (eta * T * (Vx + xi) + eta * (1 - T) + (1 - eta) + 1) / 2 + vel
+    Vbx = 2 * Vbx_m - 1
+    
+    Vp = (2 * alice_photon_number + 1)
+    Vbp_m = (eta * T * (Vp + xi) + eta * (1 - T) + (1 - eta) + 1) / 2 + vel
+    Vbp = 2 * Vbp_m - 1
+
+    sigma_c, sigma_E_cond_x, sigma_E_cond_p, sigma_E = compute_covariances_heterodyne(
+        np.array([Vx, Vp]),
+        np.array([Vbx, Vbp]),
+        T,
+        xi,
+        np.array([1.0, 1.0]),
+        eta,
+    )
+    _, nu_E = williamson(sigma_E)
+    _, nu_E_cond_x = williamson(sigma_E_cond_x)
+
+    print("Symplectic eigenvalues of sigma_E:", nu_E)
+    print("Symplectic eigenvalues of sigma_E_cond_x:", nu_E_cond_x)
+
+    # Sigma AB
+    sigma_AB = np.array([
+        [Vx, 0.0, np.sqrt(eta * T) * (Vx**2 - 1), 0.0],
+        [0.0, Vp, 0.0, -np.sqrt(eta * T) * (Vp**2 - 1)],
+        [np.sqrt(eta * T) * (Vx**2 - 1), 0.0, Vbx, 0.0],
+        [0.0, -np.sqrt(eta * T) * (Vp**2 - 1), 0.0, Vbp]
+    ])
+
+
+
 def main():
     folder = 'C:\\Users\\tliege\\LIP6\\qosst-bob\\post_processing\\data\\good_data\\'
     config_bob = Configuration(folder + 'config_bob.toml')
@@ -127,6 +169,7 @@ def main():
     )
 
     test_mu()
+    test_eigenvalues(T, xi, vel, eta, alice_photon_number)
 
     I_E_ppB, ie_raw = test_I_E_ppB(
         data_alice_normalized,

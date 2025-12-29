@@ -18,6 +18,8 @@ def williamson_decomposition(cov: np.ndarray):
     Reference: numerical recipe using diagonalization of i Omega sigma.
     """
     Db, S= williamson(cov)
+
+    # print("Williamson eigenvalues:", (Db))
     
     # Extract symplectic eigenvalues from diagonal matrix
     nu = np.diag(Db)[::2]  # Take indices [0, 2] -> [nu1, nu2]
@@ -92,7 +94,6 @@ def gaussian_unitary_from_symplectic(S: np.ndarray, ncut: int = 20):
     
     op_list = []
     for i in range(N):
-        # FIX: Access the q-quadrature scaling for mode i.
         # D is ordered (q1, p1, q2, p2, ...).
         # Mode i's q-scaling is at index 2*i.
         d_val = diag_D[2*i]

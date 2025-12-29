@@ -137,7 +137,6 @@ def I_AB_heterodyne_ppB(Va, Vb, C, cutoff, delta, x_range, p_range, na, P_B):
 
     return I_AB
 
-
 ####### Holevo bound computation #######
 
 def compute_covariances_heterodyne(
@@ -188,10 +187,10 @@ def mu_E_cond_heterodyne(xb, pb, channel_params):
     Vb_x = channel_params['Vb_x']
     Vb_p = channel_params['Vb_p']
     vec = np.array([xb, pb])
-    # invV = np.array([[1.0 / ((Vb_x + 1) / 2), 0.0], [0.0, 1.0 / ((Vb_p + 1) / 2)]])
-    # mu = sigma_c @ (invV @ vec) / np.sqrt(2)
-    invV = np.array([[1.0 / (Vb_x + 1), 0.0], [0.0, 1.0 / (Vb_p + 1)]])
-    mu = sigma_c @ (invV @ vec)
+    invV = np.array([[1.0 / ((Vb_x + 1) / 2), 0.0], [0.0, 1.0 / ((Vb_p + 1) / 2)]])
+    mu = sigma_c @ (invV @ vec) / np.sqrt(2)
+    # invV = np.array([[1.0 / (Vb_x + 1), 0.0], [0.0, 1.0 / (Vb_p + 1)]])
+    # mu = sigma_c @ (invV @ vec) 
     return mu
 
 def holevo_bound_heterodyne_ppB(
